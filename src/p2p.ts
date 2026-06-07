@@ -119,26 +119,29 @@ if (typeof stream.close === "function") {
 async function handleAnnouncement(msg: any) {
   try {
     const data = parseJsonBytes(msg.detail.data);
-    const objectHash = data.objectHash as string;
 
-console.log("[p2p] received announcement", {
-  objectHash,
-  from: msg.detail.from?.toString?.(),
-});
+    if (data.messageType !== "aon_object") return;
+
+    const obj = data.object as AonObject;
+    const objectHash = obj?.objectHash;
+
+    console.log("[p2p] received object gossip", {
+      objectHash,
+      from: msg.detail.from?.toString?.(),
+    });
 
     if (!objectHash) return;
     if (getObject(objectHash)) return;
 
-    const from = msg.detail.from;
-    if (!from) return;
+    const saved = await putObject(obj);
 
-    const saved = await fetchObjectFromPeer(from, objectHash);
+    console.log("[p2p] stored gossiped object", saved.objectHash);
 
     if (saved.objectHash) {
       await announceObject(saved);
     }
   } catch (err) {
-    console.error("[p2p] announcement failed", err);
+    console.error("[p2p] object gossip failed", err);
   }
 }
 
@@ -211,11 +214,14 @@ await (stream as any).send(yamuxBytes(response));
 
 export async function announceObject(obj: AonObject) {
   if (!node || !obj.objectHash) return;
-console.log("[p2p] announcing object", obj.objectHash);
+
+  console.log("[p2p] announcing full object", obj.objectHash);
+
   await node.services.pubsub.publish(
     TOPIC,
     jsonBytes({
-      ...objectSummary(obj),
+      messageType: "aon_object",
+      object: obj,
       announcedAt: Date.now(),
     })
   );
@@ -239,16 +245,8 @@ export function getP2pInfo() {
   };
 }
 
-export async function requestObjectFromPeer(peerIdString: string, objectHash: string) {
-  if (!node) throw new Error("P2P_NOT_STARTED");
-
-  const peer = node.getPeers().find((p) => p.toString() === peerIdString);
-
-  if (!peer) {
-    throw new Error("PEER_NOT_CONNECTED");
-  }
-
-  return await fetchObjectFromPeer(peer, objectHash);
+export async function requestObjectFromPeer(_peerIdString: string, _objectHash: string) {
+  throw new Error("P2P_REQUEST_RESPONSE_DISABLED_USE_GOSSIP_V0");
 }
 
 export async function dialPeer(addr: string) {
