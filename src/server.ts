@@ -112,13 +112,49 @@ function objectRefsLower(obj: any) {
   return (obj.references ?? []).map((x: string) => x.toLowerCase());
 }
 
+async function executeGraphAction(args: {
+  authorization: any;
+  condition: any;
+  proof: any;
+  mode?: string;
+}) {
+  const mode = args.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate";
+
+  if (mode === "off") {
+    return {
+      executed: false,
+      mode,
+      executionTx: null,
+      result: "verified_only",
+    };
+  }
+
+  if (mode === "simulate") {
+    const txid = args.proof.payload?.txid ?? args.proof.payload?.proof?.txid;
+
+    return {
+      executed: true,
+      mode,
+      executionTx: `simulated:aon:${txid}`,
+      result: "simulated_settlement",
+    };
+  }
+
+  if (mode === "contract") {
+    throw new Error("CONTRACT_EXECUTOR_NOT_IMPLEMENTED");
+  }
+
+  throw new Error("UNKNOWN_EXECUTOR_MODE");
+}
+
 async function consumeExecutableGraph(args: {
   authorizationHash: string;
   conditionHash: string;
   proofHash: string;
   creator?: string;
   executionTx?: string | null;
-  summary?: string | null;
+summary?: string | null;
+mode?: string;
 }) {
   const authorizationHash = lowerHash(args.authorizationHash, "INVALID_AUTHORIZATION_HASH");
   const conditionHash = lowerHash(args.conditionHash, "INVALID_CONDITION_HASH");
@@ -167,6 +203,13 @@ async function consumeExecutableGraph(args: {
 
   const verification = verifyCsdProofObject(condition, proof);
 
+const action = await executeGraphAction({
+  authorization: auth,
+  condition,
+  proof,
+  mode: args.mode,
+});
+
   const receipt: AonObject = {
     objectType: "receipt",
     schemaVersion: "1",
@@ -174,13 +217,17 @@ async function consumeExecutableGraph(args: {
     createdAt: Date.now(),
     creator: args.creator ?? "aon-executor-v0",
     references: [authorizationHash, conditionHash, proofHash],
-    payload: {
-      receiptType: "authorized_state_transition_completed",
-      result: "executed",
-      executionTx: args.executionTx ?? null,
-      summary: args.summary ?? null,
-      verification,
-    },
+payload: {
+  receiptType: "authorized_state_transition_completed",
+  result: action.result,
+  executionTx: args.executionTx ?? action.executionTx ?? null,
+  summary: args.summary ?? null,
+  verification,
+  executor: {
+    mode: action.mode,
+    executed: action.executed,
+  },
+},
   };
 
   const saved = await putObject(receipt);
@@ -851,6 +898,7 @@ const next = executable.find((x: any) => x.status === "executable" && isGraphCon
       creator: body.creator ?? "aon-executor-v0",
       executionTx: body.executionTx ?? null,
       summary: body.summary ?? "Consumed by executor endpoint",
+mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
     });
 
     return {
