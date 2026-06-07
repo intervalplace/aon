@@ -87,11 +87,11 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
 
   const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
 
-  await stream.send(jsonBytes({ objectHash }));
+stream.sendData(jsonBytes({ objectHash }));
 
-  if (typeof stream.sendCloseWrite === "function") {
-    stream.sendCloseWrite();
-  }
+if (typeof stream.sendCloseWrite === "function") {
+  stream.sendCloseWrite();
+}
 
 const response = await readJsonFromStream(stream);
 
@@ -182,11 +182,7 @@ const req = await readJsonFromStream(stream);
       ? { ok: true, object }
       : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
 
-    await (stream as any).send(jsonBytes(response));
-
-if (typeof (stream as any).close === "function") {
-  await (stream as any).close();
-}
+(stream as any).sendData(jsonBytes(response));
 
     if (typeof (stream as any).sendCloseWrite === "function") {
       (stream as any).sendCloseWrite();
