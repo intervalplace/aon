@@ -729,7 +729,9 @@ app.post("/v1/conditions/csd-payment", async (req, reply) => {
         expectedAmount,
         minConfirmations,
         expectedGenesisHash,
-        expectedIntentHash: body.expectedIntentHash ?? authPayload.tradeIntentHash ?? null,
+...(body.expectedIntentHash
+  ? { expectedIntentHash: requireHex(body.expectedIntentHash, "INVALID_EXPECTED_INTENT_HASH") }
+  : {}),
         authorizationType: auth.payload.authorizationType,
         summary: body.summary ?? null,
       },
