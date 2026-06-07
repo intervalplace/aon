@@ -16,6 +16,7 @@ import {
   getP2pInfo,
   requestObjectFromPeer,
   startP2p,
+getPubsubInfo,
 } from "./p2p.js";
 
 
@@ -30,6 +31,13 @@ app.get("/v1/health", async () => ({
   ok: true,
   service: "aon-node-v0",
 }));
+
+app.get("/v1/p2p/pubsub", async () => {
+  return {
+    ok: true,
+    pubsub: getPubsubInfo(),
+  };
+});
 
 app.post("/v1/objects", async (req, reply) => {
   try {
