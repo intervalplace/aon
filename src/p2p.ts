@@ -227,6 +227,32 @@ export async function announceObject(obj: AonObject) {
   );
 }
 
+export function getPubsubInfo() {
+  if (!node) {
+    return {
+      started: false,
+      topic: TOPIC,
+      subscribers: [],
+    };
+  }
+
+  const pubsub: any = node.services.pubsub;
+
+  return {
+    started,
+    topic: TOPIC,
+    peers: node.getPeers().map((p) => p.toString()),
+    topics:
+      typeof pubsub.getTopics === "function"
+        ? pubsub.getTopics()
+        : [],
+    subscribers:
+      typeof pubsub.getSubscribers === "function"
+        ? pubsub.getSubscribers(TOPIC).map((p: any) => p.toString())
+        : [],
+  };
+}
+
 export function getP2pInfo() {
   if (!node) {
     return {
