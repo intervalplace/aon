@@ -504,5 +504,31 @@ app.post("/v1/p2p/gossip/:objectHash", async (req, reply) => {
   }
 });
 
+app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
+  try {
+    const objectHash = (req.params as any).objectHash as string;
+    const obj = getObject(objectHash);
+
+    if (!obj) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "OBJECT_NOT_FOUND" },
+      });
+    }
+
+    await announceObject(obj);
+
+    return {
+      ok: true,
+      objectHash,
+      status: "push_attempted",
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "PUSH_FAILED" },
+    });
+  }
+});
 
 await app.listen({ port, host: "0.0.0.0" });
