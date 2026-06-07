@@ -1,5 +1,5 @@
 import { privateKeyToAccount } from "viem/accounts";
-import { signTypedData } from "viem/accounts";
+
 
 const AON = process.env.AON ?? "http://127.0.0.1:8787";
 const CSD_TXID =
@@ -72,9 +72,7 @@ async function get(path) {
   return await res.json();
 }
 
-const signature = await signTypedData({
-  privateKey: account.source === "privateKey" ? account.privateKey : undefined,
-  account,
+const signature = await account.signTypedData({
   domain,
   types,
   primaryType: "CsdUsdcAuthorization",
