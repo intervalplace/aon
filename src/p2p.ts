@@ -93,7 +93,7 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
 
   const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
 
-stream.sendData(yamuxBytes({ objectHash }));
+await stream.send(yamuxBytes({ objectHash }));
 
 if (typeof stream.sendCloseWrite === "function") {
   stream.sendCloseWrite();
@@ -188,7 +188,7 @@ const req = await readJsonFromStream(stream);
       ? { ok: true, object }
       : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
 
-(stream as any).sendData(yamuxBytes(response));
+await (stream as any).send(yamuxBytes(response));
 
     if (typeof (stream as any).sendCloseWrite === "function") {
       (stream as any).sendCloseWrite();
