@@ -70,6 +70,101 @@ function csdUsdcTypes() {
   };
 }
 
+
+function lowerHash(x: any, code: string) {
+  if (typeof x !== "string" || !x.startsWith("0x")) {
+    throw new Error(code);
+  }
+  return x.toLowerCase();
+}
+
+function objectRefsLower(obj: any) {
+  return (obj.references ?? []).map((x: string) => x.toLowerCase());
+}
+
+async function consumeExecutableGraph(args: {
+  authorizationHash: string;
+  conditionHash: string;
+  proofHash: string;
+  creator?: string;
+  executionTx?: string | null;
+  summary?: string | null;
+}) {
+  const authorizationHash = lowerHash(args.authorizationHash, "INVALID_AUTHORIZATION_HASH");
+  const conditionHash = lowerHash(args.conditionHash, "INVALID_CONDITION_HASH");
+  const proofHash = lowerHash(args.proofHash, "INVALID_PROOF_HASH");
+
+  const auth = getObject(authorizationHash);
+  const condition = getObject(conditionHash);
+  const proof = getObject(proofHash);
+
+  if (!auth || !condition || !proof) throw new Error("OBJECT_NOT_FOUND");
+
+  if (auth.objectType !== "authorization") throw new Error("INVALID_AUTHORIZATION_OBJECT");
+  if (condition.objectType !== "condition") throw new Error("INVALID_CONDITION_OBJECT");
+  if (proof.objectType !== "proof") throw new Error("INVALID_PROOF_OBJECT");
+
+  if (!objectRefsLower(condition).includes(authorizationHash)) {
+    throw new Error("CONDITION_DOES_NOT_REFERENCE_AUTHORIZATION");
+  }
+
+  if (!objectRefsLower(proof).includes(conditionHash)) {
+    throw new Error("PROOF_DOES_NOT_REFERENCE_CONDITION");
+  }
+
+  const existingReceipts = listObjects({
+    objectType: "receipt",
+    namespace: auth.namespace,
+  });
+
+  const conditionAlreadyReceipted = existingReceipts.some((r: any) =>
+    objectRefsLower(r).includes(conditionHash)
+  );
+
+  if (conditionAlreadyReceipted) {
+    throw new Error("CONDITION_ALREADY_CONSUMED");
+  }
+
+  const proofTxid = proof.payload?.txid ?? proof.payload?.proof?.txid;
+
+  const txidAlreadyReceipted = existingReceipts.some((r: any) =>
+    r.payload?.verification?.txid?.toLowerCase?.() === proofTxid?.toLowerCase?.()
+  );
+
+  if (proofTxid && txidAlreadyReceipted) {
+    throw new Error("PROOF_TXID_ALREADY_CONSUMED");
+  }
+
+  const verification = verifyCsdProofObject(condition, proof);
+
+  const receipt: AonObject = {
+    objectType: "receipt",
+    schemaVersion: "1",
+    namespace: auth.namespace,
+    createdAt: Date.now(),
+    creator: args.creator ?? "aon-executor-v0",
+    references: [authorizationHash, conditionHash, proofHash],
+    payload: {
+      receiptType: "authorized_state_transition_completed",
+      result: "executed",
+      executionTx: args.executionTx ?? null,
+      summary: args.summary ?? null,
+      verification,
+    },
+  };
+
+  const saved = await putObject(receipt);
+  await announceObject(saved);
+
+  return {
+    receipt: saved,
+    verification,
+    authorization: auth,
+    condition,
+    proof,
+  };
+}
+
 await app.register(cors, { origin: true });
 await loadStore();
 await startP2p();
@@ -233,134 +328,42 @@ app.post("/v1/receipts/from-executable", async (req, reply) => {
   try {
     const body = req.body as any;
 
-    const authorizationHash = body.authorizationHash;
-    const conditionHash = body.conditionHash;
-    const proofHash = body.proofHash;
-
-    if (!authorizationHash || !conditionHash || !proofHash) {
+    if (!body.authorizationHash || !body.conditionHash || !body.proofHash) {
       return reply.code(400).send({
         ok: false,
         error: { code: "MISSING_HASHES" },
       });
     }
 
-    const auth = getObject(authorizationHash);
-    const condition = getObject(conditionHash);
-    const proof = getObject(proofHash);
+    const result = await consumeExecutableGraph({
+      authorizationHash: body.authorizationHash,
+      conditionHash: body.conditionHash,
+      proofHash: body.proofHash,
+      creator: body.creator ?? "aon-node-v0",
+      executionTx: body.executionTx ?? null,
+      summary: body.summary ?? null,
+    });
 
-    if (!auth || !condition || !proof) {
-      return reply.code(404).send({
-        ok: false,
-        error: { code: "OBJECT_NOT_FOUND" },
-      });
-    }
-
-
-if (auth.objectType !== "authorization") {
-
-  return reply.code(400).send({ ok: false, error: { code: "INVALID_AUTHORIZATION_OBJECT" } });
-
-}
-
-if (condition.objectType !== "condition") {
-
-  return reply.code(400).send({ ok: false, error: { code: "INVALID_CONDITION_OBJECT" } });
-
-}
-
-if (proof.objectType !== "proof") {
-
-  return reply.code(400).send({ ok: false, error: { code: "INVALID_PROOF_OBJECT" } });
-
-}
-
-if (!condition.references.map((r) => r.toLowerCase()).includes(authorizationHash.toLowerCase())) {
-
-  return reply.code(400).send({
-
-    ok: false,
-
-    error: { code: "CONDITION_DOES_NOT_REFERENCE_AUTHORIZATION" },
-
-  });
-
-}
-
-if (!proof.references.map((r) => r.toLowerCase()).includes(conditionHash.toLowerCase())) {
-
-  return reply.code(400).send({
-
-    ok: false,
-
-    error: { code: "PROOF_DOES_NOT_REFERENCE_CONDITION" },
-
-  });
-
-}
-
-const existingReceipts = listObjects({
-  objectType: "receipt",
-  namespace: auth.namespace,
-});
-
-const conditionAlreadyReceipted = existingReceipts.some((r: any) =>
-  r.references?.map((x: string) => x.toLowerCase()).includes(conditionHash.toLowerCase())
-);
-
-if (conditionAlreadyReceipted) {
-  return reply.code(409).send({
-    ok: false,
-    error: { code: "CONDITION_ALREADY_CONSUMED" },
-  });
-}
-
-const proofTxid = proof.payload?.txid ?? proof.payload?.proof?.txid;
-
-const txidAlreadyReceipted = existingReceipts.some((r: any) =>
-  r.payload?.verification?.txid?.toLowerCase?.() === proofTxid?.toLowerCase?.()
-);
-
-if (proofTxid && txidAlreadyReceipted) {
-  return reply.code(409).send({
-    ok: false,
-    error: { code: "PROOF_TXID_ALREADY_CONSUMED" },
-  });
-}
-
-const verification = verifyCsdProofObject(condition, proof);
-
-const receipt: AonObject = {
-  objectType: "receipt",
-  schemaVersion: "1",
-  namespace: auth.namespace,
-  createdAt: Date.now(),
-  creator: body.creator ?? "aon-node-v0",
-  references: [authorizationHash, conditionHash, proofHash],
-  payload: {
-    receiptType: "authorized_state_transition_completed",
-    result: body.result ?? "executed",
-    executionTx: body.executionTx ?? null,
-    summary: body.summary ?? null,
-	verification,
-  },
-};
-    const saved = await putObject(receipt);
-
-await announceObject(saved);
-
-return {
-  ok: true,
-  objectHash: saved.objectHash,
-  receipt: saved,
-};
+    return {
+      ok: true,
+      objectHash: result.receipt.objectHash,
+      receipt: result.receipt,
+    };
   } catch (err: any) {
-    return reply.code(400).send({
+    const code = err?.message ?? "RECEIPT_CREATION_FAILED";
+    const status =
+      code === "CONDITION_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
+        ? 409
+        : code === "OBJECT_NOT_FOUND"
+          ? 404
+          : 400;
+
+    return reply.code(status).send({
       ok: false,
-      error: { code: err?.message ?? "RECEIPT_CREATION_FAILED" },
+      error: { code },
     });
   }
 });
-
 
 app.get("/v1/receipts/canonical/by-condition/:conditionHash", async (req) => {
   const conditionHash = ((req.params as any).conditionHash as string).toLowerCase();
@@ -751,6 +754,95 @@ app.post("/v1/conditions/csd-payment", async (req, reply) => {
       error: {
         code: err?.message ?? "CSD_PAYMENT_CONDITION_REJECTED",
       },
+    });
+  }
+});
+
+
+app.get("/v1/executable/next", async (req, reply) => {
+  const q = req.query as any;
+
+  const executable = findExecutableGraphs(listObjects(), {
+    namespace: q.namespace,
+    includeCompleted: false,
+  });
+
+  const next = executable.find((x: any) => x.status === "executable") ?? null;
+
+  return {
+    ok: true,
+    namespace: q.namespace ?? null,
+    next,
+  };
+});
+
+
+app.post("/v1/executor/consume", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    let authorizationHash = body.authorizationHash;
+    let conditionHash = body.conditionHash;
+    let proofHash = body.proofHash;
+
+    if (body.auto === true || (!authorizationHash && !conditionHash && !proofHash)) {
+      const executable = findExecutableGraphs(listObjects(), {
+        namespace: body.namespace ?? "aon:csd-usdc",
+        includeCompleted: false,
+      });
+
+      const next = executable.find((x: any) => x.status === "executable");
+
+      if (!next) {
+        return reply.code(404).send({
+          ok: false,
+          error: { code: "NO_EXECUTABLE_GRAPH_AVAILABLE" },
+        });
+      }
+
+      authorizationHash = next.authorization.objectHash;
+      conditionHash = next.condition.objectHash;
+      proofHash = next.proof.objectHash;
+    }
+
+    if (!authorizationHash || !conditionHash || !proofHash) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_HASHES" },
+      });
+    }
+
+    const result = await consumeExecutableGraph({
+      authorizationHash,
+      conditionHash,
+      proofHash,
+      creator: body.creator ?? "aon-executor-v0",
+      executionTx: body.executionTx ?? null,
+      summary: body.summary ?? "Consumed by executor endpoint",
+    });
+
+    return {
+      ok: true,
+      status: "consumed",
+      authorizationHash,
+      conditionHash,
+      proofHash,
+      objectHash: result.receipt.objectHash,
+      receipt: result.receipt,
+      verification: result.verification,
+    };
+  } catch (err: any) {
+    const code = err?.message ?? "EXECUTOR_CONSUME_FAILED";
+    const status =
+      code === "CONDITION_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
+        ? 409
+        : code === "OBJECT_NOT_FOUND" || code === "NO_EXECUTABLE_GRAPH_AVAILABLE"
+          ? 404
+          : 400;
+
+    return reply.code(status).send({
+      ok: false,
+      error: { code },
     });
   }
 });
