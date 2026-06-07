@@ -15,6 +15,7 @@ import { Uint8ArrayList } from "uint8arraylist";
 
 const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
+const PUSH_PROTOCOL = "/aon/object-push/1";
 
 let node: Libp2p | null = null;
 let started = false;
@@ -81,6 +82,20 @@ async function readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any>
   }
 
   throw new Error("P2P_JSON_MESSAGE_INCOMPLETE");
+}
+
+async function pushObjectToPeer(peerId: any, obj: AonObject) {
+  if (!node || !obj.objectHash) return;
+
+  const stream: any = await node.dialProtocol(peerId, PUSH_PROTOCOL);
+  await stream.send(new Uint8ArrayList(jsonBytes({
+    messageType: "aon_object",
+    object: obj,
+  })));
+
+  if (typeof stream.sendCloseWrite === "function") {
+    stream.sendCloseWrite();
+  }
 }
 
 async function fetchObjectFromPeer(peerId: any, objectHash: string) {
@@ -180,28 +195,19 @@ pubsub: gossipsub({
     },
   });
 
-await node.handle(OBJECT_PROTOCOL, async ({ stream }) => {
+await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
   try {
-const req = await readJsonFromStream(stream);
-    const objectHash = req.objectHash as string;
-    const object = objectHash ? getObject(objectHash) : null;
+    const msg = await readJsonFromStream(stream);
+    if (msg.messageType !== "aon_object") return;
 
-    console.log("[p2p] object request", {
-      objectHash,
-      found: !!object,
-    });
+    const obj = msg.object as AonObject;
+    if (!obj?.objectHash) return;
+    if (getObject(obj.objectHash)) return;
 
-    const response = object
-      ? { ok: true, object }
-      : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
-
-await (stream as any).send(yamuxBytes(response));
-
-    if (typeof (stream as any).sendCloseWrite === "function") {
-      (stream as any).sendCloseWrite();
-    }
+    const saved = await putObject(obj);
+    console.log("[p2p] stored pushed object", saved.objectHash);
   } catch (err) {
-    console.error("[p2p] object request failed", err);
+    console.error("[p2p] object push failed", err);
   }
 });
 
@@ -219,16 +225,22 @@ await (stream as any).send(yamuxBytes(response));
 export async function announceObject(obj: AonObject) {
   if (!node || !obj.objectHash) return;
 
-  console.log("[p2p] announcing full object", obj.objectHash);
+  const peers = node.getPeers();
 
-  await node.services.pubsub.publish(
-    TOPIC,
-    jsonBytes({
-      messageType: "aon_object",
-      object: obj,
-      announcedAt: Date.now(),
-    })
-  );
+  console.log("[p2p] pushing object", {
+    objectHash: obj.objectHash,
+    peers: peers.map((p) => p.toString()),
+  });
+
+  for (const peer of peers) {
+    pushObjectToPeer(peer, obj).catch((err) => {
+      console.error("[p2p] push failed", {
+        peer: peer.toString(),
+        objectHash: obj.objectHash,
+        error: err?.message ?? String(err),
+      });
+    });
+  }
 }
 
 export function getPubsubInfo() {
