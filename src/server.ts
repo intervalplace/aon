@@ -1,3 +1,5 @@
+//server.ts
+
 import "./polyfills.js";
 import "dotenv/config";
 import Fastify from "fastify";
@@ -42,8 +44,7 @@ app.post("/v1/objects", async (req, reply) => {
       });
     }
 
-
-await announceObject(obj);
+    await announceObject(obj);
 
     return {
       ok: true,
@@ -59,6 +60,7 @@ await announceObject(obj);
     });
   }
 });
+
 app.get("/v1/objects/:hash", async (req, reply) => {
   const hash = (req.params as any).hash;
   const obj = getObject(hash);
@@ -466,4 +468,33 @@ app.post("/v1/p2p/request-object", async (req, reply) => {
     });
   }
 });
+
+app.post("/v1/p2p/gossip/:objectHash", async (req, reply) => {
+  try {
+    const objectHash = (req.params as any).objectHash as string;
+    const obj = getObject(objectHash);
+
+    if (!obj) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "OBJECT_NOT_FOUND" },
+      });
+    }
+
+    await announceObject(obj);
+
+    return {
+      ok: true,
+      objectHash,
+      status: "announced",
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "GOSSIP_FAILED" },
+    });
+  }
+});
+
+
 await app.listen({ port, host: "0.0.0.0" });
