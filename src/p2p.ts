@@ -12,6 +12,14 @@ import { multiaddr } from "@multiformats/multiaddr";
 import { getObject, putObject } from "./store.js";
 import type { AonObject } from "./object.js";
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
+import {
+  generateKeyPair,
+  privateKeyFromProtobuf,
+  privateKeyToProtobuf,
+} from "@libp2p/crypto/keys";
+
 import { Uint8ArrayList } from "uint8arraylist";
 
 const TOPIC = "/aon/objects/1";
@@ -31,6 +39,23 @@ function yamuxBytes(x: unknown) {
 
 function parseJsonBytes(bytes: Uint8Array) {
   return JSON.parse(toString(bytes));
+}
+
+async function loadOrCreatePrivateKey() {
+  const keyPath = process.env.AON_PEER_KEY_PATH;
+
+  if (!keyPath) return undefined;
+
+  if (existsSync(keyPath)) {
+    return privateKeyFromProtobuf(readFileSync(keyPath));
+  }
+
+  mkdirSync(dirname(keyPath), { recursive: true });
+
+  const privateKey = await generateKeyPair("Ed25519");
+  writeFileSync(keyPath, privateKeyToProtobuf(privateKey));
+
+  return privateKey;
 }
 
 function peerIdFromMultiaddrString(addr: string) {
@@ -187,7 +212,10 @@ export async function startP2p() {
     .map((x) => x.trim())
     .filter(Boolean);
 
+const privateKey = await loadOrCreatePrivateKey();
+
   node = await createLibp2p({
+privateKey,
     addresses: {
       listen: [`/ip4/0.0.0.0/tcp/${listenPort}`],
     },
