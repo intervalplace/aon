@@ -170,9 +170,13 @@ export async function startP2p() {
       : [],
     services: {
       identify: identify(),
-      pubsub: gossipsub({
-        allowPublishToZeroTopicPeers: true,
-      }),
+pubsub: gossipsub({
+  allowPublishToZeroTopicPeers: true,
+  directPeers: bootstrapPeers.map((addr) => ({
+    id: multiaddr(addr).getPeerId(),
+    addrs: [multiaddr(addr)],
+  })) as any,
+}),
     },
   });
 
