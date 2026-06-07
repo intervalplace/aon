@@ -32,6 +32,17 @@ function parseJsonBytes(bytes: Uint8Array) {
   return JSON.parse(toString(bytes));
 }
 
+function peerIdFromMultiaddrString(addr: string): string {
+  const marker = "/p2p/";
+  const i = addr.lastIndexOf(marker);
+
+  if (i === -1) {
+    throw new Error("BOOTSTRAP_MULTIADDR_MISSING_P2P");
+  }
+
+  return addr.slice(i + marker.length);
+}
+
 function objectSummary(obj: AonObject) {
   return {
     objectHash: obj.objectHash,
@@ -187,10 +198,10 @@ export async function startP2p() {
       identify: identify(),
 pubsub: gossipsub({
   allowPublishToZeroTopicPeers: true,
-  directPeers: bootstrapPeers.map((addr) => ({
-    id: multiaddr(addr).getPeerId(),
-    addrs: [multiaddr(addr)],
-  })) as any,
+directPeers: bootstrapPeers.map((addr) => ({
+  id: peerIdFromMultiaddrString(addr),
+  addrs: [multiaddr(addr)],
+})) as any,
 }),
     },
   });
