@@ -235,19 +235,7 @@ await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
   }
 });
 
-    const response = object
-      ? { ok: true, object }
-      : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
 
-    await (stream as any).send(jsonBytes(response));
-
-    if (typeof (stream as any).sendCloseWrite === "function") {
-      (stream as any).sendCloseWrite();
-    }
-  } catch (err) {
-    console.error("[p2p] object request failed", err);
-  }
-});
 
   node.services.pubsub.addEventListener("message", handleAnnouncement);
   await node.services.pubsub.subscribe(TOPIC);
