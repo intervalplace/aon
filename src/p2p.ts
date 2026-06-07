@@ -215,6 +215,7 @@ directPeers: bootstrapPeers.map((addr) => ({
 
 await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
   try {
+    console.log("[p2p] incoming push stream");
     const msg = await readJsonFromStream(stream);
 
     if (msg.messageType !== "aon_object") return;
@@ -259,13 +260,15 @@ export async function announceObject(obj: AonObject) {
   });
 
   for (const peer of peers) {
-    pushObjectToPeer(peer, obj).catch((err) => {
+    try {
+      await pushObjectToPeer(peer, obj);
+    } catch (err: any) {
       console.error("[p2p] push failed", {
         peer: peer.toString(),
         objectHash: obj.objectHash,
         error: err?.message ?? String(err),
       });
-    });
+    }
   }
 }
 
