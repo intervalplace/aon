@@ -58,6 +58,8 @@ const signature = await account.signTypedData({
   message: authorization,
 });
 
+authorization.usdcAmount = "2000000";
+
 const res = await fetch(`${AON}/v1/authorizations/csd-usdc/from-signed-auth`, {
   method: "POST",
   headers: { "content-type": "application/json" },
