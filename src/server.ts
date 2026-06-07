@@ -663,4 +663,94 @@ app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
   }
 });
 
+app.post("/v1/conditions/csd-payment", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.authorizationHash) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_AUTHORIZATION_HASH" },
+      });
+    }
+
+    const authorizationHash = String(body.authorizationHash).toLowerCase();
+    const auth = getObject(authorizationHash);
+
+    if (!auth) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "AUTHORIZATION_OBJECT_NOT_FOUND" },
+      });
+    }
+
+    if (auth.objectType !== "authorization") {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "INVALID_AUTHORIZATION_OBJECT" },
+      });
+    }
+
+    if (auth.payload?.authorizationType !== "csd_usdc_release") {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "UNSUPPORTED_AUTHORIZATION_TYPE" },
+      });
+    }
+
+    const authPayload = auth.payload.authorization;
+
+    const expectedRecipientScriptPubKey = body.expectedRecipientScriptPubKey
+      ? requireHex(body.expectedRecipientScriptPubKey, "INVALID_EXPECTED_RECIPIENT_SCRIPT")
+      : authPayload.sellerCsdScriptHash;
+
+    const expectedAmount = String(body.expectedAmount ?? authPayload.csdAmount);
+    const minConfirmations = Number(body.minConfirmations ?? authPayload.minConfirmations ?? 1);
+    const expectedGenesisHash = body.expectedGenesisHash
+      ? requireHex(body.expectedGenesisHash, "INVALID_EXPECTED_GENESIS_HASH")
+      : authPayload.csdGenesisHash;
+
+    if (!expectedRecipientScriptPubKey) throw new Error("EXPECTED_RECIPIENT_SCRIPT_MISSING");
+    if (!expectedAmount) throw new Error("EXPECTED_AMOUNT_MISSING");
+    if (!Number.isFinite(minConfirmations) || minConfirmations < 0) {
+      throw new Error("INVALID_MIN_CONFIRMATIONS");
+    }
+
+    const condition: AonObject = {
+      objectType: "condition",
+      schemaVersion: "1",
+      namespace: body.namespace ?? auth.namespace ?? "aon:csd-usdc",
+      createdAt: body.createdAt ?? nowMs(),
+      creator: body.creator ?? "aon-node-v0",
+      references: [authorizationHash],
+      payload: {
+        conditionType: "csd_payment",
+        expectedRecipientScriptPubKey,
+        expectedAmount,
+        minConfirmations,
+        expectedGenesisHash,
+        expectedIntentHash: body.expectedIntentHash ?? authPayload.tradeIntentHash ?? null,
+        authorizationType: auth.payload.authorizationType,
+        summary: body.summary ?? null,
+      },
+    };
+
+    const saved = await putObject(condition);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      objectHash: saved.objectHash,
+      object: saved,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: {
+        code: err?.message ?? "CSD_PAYMENT_CONDITION_REJECTED",
+      },
+    });
+  }
+});
+
 await app.listen({ port, host: "0.0.0.0" });
