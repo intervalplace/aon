@@ -11,6 +11,8 @@ import { multiaddr } from "@multiformats/multiaddr";
 import { getObject, putObject } from "./store.js";
 import type { AonObject } from "./object.js";
 
+import { Uint8ArrayList } from "uint8arraylist";
+
 const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
 
@@ -19,6 +21,10 @@ let started = false;
 
 function jsonBytes(x: unknown) {
   return fromString(JSON.stringify(x));
+}
+
+function yamuxBytes(x: unknown) {
+  return new Uint8ArrayList(jsonBytes(x));
 }
 
 function parseJsonBytes(bytes: Uint8Array) {
@@ -87,7 +93,7 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
 
   const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
 
-stream.sendData(jsonBytes({ objectHash }));
+stream.sendData(yamuxBytes({ objectHash }));
 
 if (typeof stream.sendCloseWrite === "function") {
   stream.sendCloseWrite();
@@ -182,7 +188,7 @@ const req = await readJsonFromStream(stream);
       ? { ok: true, object }
       : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
 
-(stream as any).sendData(jsonBytes(response));
+(stream as any).sendData(yamuxBytes(response));
 
     if (typeof (stream as any).sendCloseWrite === "function") {
       (stream as any).sendCloseWrite();
