@@ -213,7 +213,8 @@ directPeers: bootstrapPeers.map((addr) => ({
     },
   });
 
-await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
+await node.handle(PUSH_PROTOCOL, async (evt: any) => {
+  const stream = evt.stream ?? evt;
   try {
     console.log("[p2p] incoming push stream");
     const msg = await readJsonFromStream(stream);
