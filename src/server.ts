@@ -34,6 +34,36 @@ function requireHex(x: any, code: string): Hex {
   return x as Hex;
 }
 
+function isGraphConsumable(graph: any) {
+  const auth = graph.authorization;
+  const condition = graph.condition;
+  const proof = graph.proof;
+
+  if (!auth?.objectHash || !condition?.objectHash || !proof?.objectHash) return false;
+
+  const existingReceipts = listObjects({
+    objectType: "receipt",
+    namespace: auth.namespace,
+  });
+
+  const conditionHash = condition.objectHash.toLowerCase();
+  const proofTxid = proof.payload?.txid ?? proof.payload?.proof?.txid;
+
+  const conditionAlreadyReceipted = existingReceipts.some((r: any) =>
+    objectRefsLower(r).includes(conditionHash)
+  );
+
+  if (conditionAlreadyReceipted) return false;
+
+  const txidAlreadyReceipted = existingReceipts.some((r: any) =>
+    r.payload?.verification?.txid?.toLowerCase?.() === proofTxid?.toLowerCase?.()
+  );
+
+  if (proofTxid && txidAlreadyReceipted) return false;
+
+  return true;
+}
+
 function normalizeCsdUsdcAuthorization(auth: any) {
   return {
     buyer: getAddress(auth.buyer),
@@ -759,7 +789,7 @@ app.post("/v1/conditions/csd-payment", async (req, reply) => {
 });
 
 
-app.get("/v1/executable/next", async (req, reply) => {
+app.get("/v1/executable/next", async (req) => {
   const q = req.query as any;
 
   const executable = findExecutableGraphs(listObjects(), {
@@ -767,7 +797,9 @@ app.get("/v1/executable/next", async (req, reply) => {
     includeCompleted: false,
   });
 
-  const next = executable.find((x: any) => x.status === "executable") ?? null;
+  const next =
+    executable.find((x: any) => x.status === "executable" && isGraphConsumable(x)) ??
+    null;
 
   return {
     ok: true,
@@ -791,7 +823,7 @@ app.post("/v1/executor/consume", async (req, reply) => {
         includeCompleted: false,
       });
 
-      const next = executable.find((x: any) => x.status === "executable");
+const next = executable.find((x: any) => x.status === "executable" && isGraphConsumable(x));
 
       if (!next) {
         return reply.code(404).send({
