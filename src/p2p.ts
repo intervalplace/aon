@@ -1,4 +1,5 @@
 //p2p.ts
+import { peerIdFromString } from "@libp2p/peer-id";
 import { createLibp2p, type Libp2p } from "libp2p";
 import { tcp } from "@libp2p/tcp";
 import { noise } from "@chainsafe/libp2p-noise";
@@ -32,7 +33,7 @@ function parseJsonBytes(bytes: Uint8Array) {
   return JSON.parse(toString(bytes));
 }
 
-function peerIdFromMultiaddrString(addr: string): string {
+function peerIdFromMultiaddrString(addr: string) {
   const marker = "/p2p/";
   const i = addr.lastIndexOf(marker);
 
@@ -40,7 +41,7 @@ function peerIdFromMultiaddrString(addr: string): string {
     throw new Error("BOOTSTRAP_MULTIADDR_MISSING_P2P");
   }
 
-  return addr.slice(i + marker.length);
+return peerIdFromString(addr.slice(i + marker.length));
 }
 
 function objectSummary(obj: AonObject) {
