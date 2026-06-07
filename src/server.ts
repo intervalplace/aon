@@ -1,6 +1,7 @@
 //server.ts
 
 import "./polyfills.js";
+import { getAddress, type Hex } from "viem";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
@@ -21,6 +22,53 @@ getPubsubInfo,
 
 
 const app = Fastify({ logger: true });
+
+function nowMs() {
+  return Date.now();
+}
+
+function requireHex(x: any, code: string): Hex {
+  if (typeof x !== "string" || !x.startsWith("0x")) {
+    throw new Error(code);
+  }
+  return x as Hex;
+}
+
+function normalizeCsdUsdcAuthorization(auth: any) {
+  return {
+    buyer: getAddress(auth.buyer),
+    sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
+    sellerCsdScriptHash: requireHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
+    csdGenesisHash: requireHex(auth.csdGenesisHash, "INVALID_CSD_GENESIS_HASH"),
+    tradeIntentHash: requireHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
+    csdAmount: String(auth.csdAmount),
+    usdc: getAddress(auth.usdc),
+    usdcAmount: String(auth.usdcAmount),
+    minConfirmations: String(auth.minConfirmations),
+    validAfter: String(auth.validAfter),
+    validBefore: String(auth.validBefore),
+    nonce: requireHex(auth.nonce, "INVALID_NONCE"),
+  };
+}
+
+function csdUsdcTypes() {
+  return {
+    CsdUsdcAuthorization: [
+      { name: "buyer", type: "address" },
+      { name: "sellerUsdcRecipient", type: "address" },
+      { name: "sellerCsdScriptHash", type: "bytes20" },
+      { name: "csdGenesisHash", type: "bytes32" },
+      { name: "tradeIntentHash", type: "bytes32" },
+      { name: "csdAmount", type: "uint256" },
+      { name: "usdc", type: "address" },
+      { name: "usdcAmount", type: "uint256" },
+      { name: "minConfirmations", type: "uint256" },
+      { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" },
+      { name: "nonce", type: "bytes32" },
+    ],
+  };
+}
 
 await app.register(cors, { origin: true });
 await loadStore();
@@ -527,6 +575,90 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
     return reply.code(400).send({
       ok: false,
       error: { code: err?.message ?? "PUSH_FAILED" },
+    });
+  }
+});
+
+app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.authorization) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_AUTHORIZATION" },
+      });
+    }
+
+    if (!body.signature) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_SIGNATURE" },
+      });
+    }
+
+    if (!body.domain) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_EIP712_DOMAIN" },
+      });
+    }
+
+    const authorization = normalizeCsdUsdcAuthorization(body.authorization);
+    const signer = getAddress(body.signer ?? authorization.buyer);
+
+    if (signer.toLowerCase() !== authorization.buyer.toLowerCase()) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "SIGNER_BUYER_MISMATCH" },
+      });
+    }
+
+    const validBefore = Number(authorization.validBefore);
+    if (Number.isFinite(validBefore) && validBefore <= Math.floor(Date.now() / 1000)) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "AUTHORIZATION_EXPIRED" },
+      });
+    }
+
+    const obj: AonObject & { signature: any } = {
+      objectType: "authorization",
+      schemaVersion: "1",
+      namespace: body.namespace ?? "aon:csd-usdc",
+      createdAt: body.createdAt ?? nowMs(),
+      creator: signer,
+      references: body.references ?? [],
+      payload: {
+        authorizationType: "csd_usdc_release",
+        authorization,
+        summary: body.summary ?? null,
+      },
+      signature: {
+        scheme: "eip712",
+        signer,
+        domain: body.domain,
+        types: body.types ?? csdUsdcTypes(),
+        primaryType: body.primaryType ?? "CsdUsdcAuthorization",
+        message: authorization,
+        signature: body.signature,
+      },
+    } as any;
+
+    const saved = await putObject(obj);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      objectHash: saved.objectHash,
+      object: saved,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: {
+        code: err?.message ?? "CSD_USDC_AUTHORIZATION_REJECTED",
+      },
     });
   }
 });
