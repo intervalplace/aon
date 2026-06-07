@@ -1,3 +1,4 @@
+//p2p.ts
 import { createLibp2p, type Libp2p } from "libp2p";
 import { tcp } from "@libp2p/tcp";
 import { noise } from "@chainsafe/libp2p-noise";
@@ -93,6 +94,10 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
   }
 
 const response = await readJsonFromStream(stream);
+
+if (typeof stream.close === "function") {
+  await stream.close();
+}
 
   if (!response.ok || !response.object) {
     throw new Error(response?.error?.code ?? "P2P_OBJECT_FETCH_FAILED");
