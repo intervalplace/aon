@@ -1,0 +1,599 @@
+{
+  "objects": {
+    "0x28c6e098107dcfc29a217af476f06921ee20a1c25b7a623d167a645190220319": {
+      "objectType": "authorization",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780671900,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [],
+      "payload": {
+        "action": "transfer",
+        "asset": "USDC",
+        "amount": "50",
+        "condition": "100 CSD delivered"
+      },
+      "objectHash": "0x28c6e098107dcfc29a217af476f06921ee20a1c25b7a623d167a645190220319"
+    },
+    "0xb17f696f1f463919482cc8593b9f307e13d4b2c7ce1078262e30b0e28ba1b61d": {
+      "objectType": "condition",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672000,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [
+        "0x28c6e098107dcfc29a217af476f06921ee20a1c25b7a623d167a645190220319"
+      ],
+      "payload": {
+        "conditionType": "delivery_required",
+        "requiredAsset": "CSD",
+        "requiredAmount": "100"
+      },
+      "objectHash": "0xb17f696f1f463919482cc8593b9f307e13d4b2c7ce1078262e30b0e28ba1b61d"
+    },
+    "0x740e12d9d21a551fbf70c65dc506c45451852ad496b0ec2737145c3e0e21a42d": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672100,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [
+        "0xb17f696f1f463919482cc8593b9f307e13d4b2c7ce1078262e30b0e28ba1b61d"
+      ],
+      "payload": {
+        "proofType": "delivery_observed",
+        "asset": "CSD",
+        "amount": "100",
+        "txid": "test-csd-txid-001",
+        "confirmations": 6
+      },
+      "objectHash": "0x740e12d9d21a551fbf70c65dc506c45451852ad496b0ec2737145c3e0e21a42d"
+    },
+    "0x9e4d4826737ad4738788a8d727c70237fb095a2d6e778abc3404df3954f71811": {
+      "objectType": "receipt",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672200,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [
+        "0x28c6e098107dcfc29a217af476f06921ee20a1c25b7a623d167a645190220319",
+        "0xb17f696f1f463919482cc8593b9f307e13d4b2c7ce1078262e30b0e28ba1b61d",
+        "0x740e12d9d21a551fbf70c65dc506c45451852ad496b0ec2737145c3e0e21a42d"
+      ],
+      "payload": {
+        "receiptType": "authorized_state_transition_completed",
+        "result": "executed",
+        "executedAction": "transfer",
+        "asset": "USDC",
+        "amount": "50",
+        "reason": "100 CSD delivery proof satisfied condition",
+        "executionTx": "test-usdc-transfer-001"
+      },
+      "objectHash": "0x9e4d4826737ad4738788a8d727c70237fb095a2d6e778abc3404df3954f71811"
+    },
+    "0x105e946ee21874e6debf6220eacac2aa795a6390c0f8bd32da16192304e41592": {
+      "objectType": "authorization",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672300,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [],
+      "payload": {
+        "action": "transfer",
+        "asset": "USDC",
+        "amount": "75",
+        "condition": "150 CSD delivered"
+      },
+      "objectHash": "0x105e946ee21874e6debf6220eacac2aa795a6390c0f8bd32da16192304e41592"
+    },
+    "0xc9af45375b6b37ed1bf22cc604edfeff4181cc143cae40b90e8da6e16fb0470e": {
+      "objectType": "condition",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672400,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [
+        "0x105e946ee21874e6debf6220eacac2aa795a6390c0f8bd32da16192304e41592"
+      ],
+      "payload": {
+        "conditionType": "delivery_required",
+        "requiredAsset": "CSD",
+        "requiredAmount": "150"
+      },
+      "objectHash": "0xc9af45375b6b37ed1bf22cc604edfeff4181cc143cae40b90e8da6e16fb0470e"
+    },
+    "0x12ec62d4b9015e97539753e90e93704b407f2052fc0fc42ff742f8c3a47ca999": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672500,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [
+        "0xc9af45375b6b37ed1bf22cc604edfeff4181cc143cae40b90e8da6e16fb0470e"
+      ],
+      "payload": {
+        "proofType": "delivery_observed",
+        "asset": "CSD",
+        "amount": "150",
+        "txid": "test-csd-txid-002",
+        "confirmations": 6
+      },
+      "objectHash": "0x12ec62d4b9015e97539753e90e93704b407f2052fc0fc42ff742f8c3a47ca999"
+    },
+    "0x461b7968a61c29208a23a665a36f79f6167db4f51eb27f996a85b4543eb74676": {
+      "objectType": "receipt",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780674796767,
+      "creator": "aon-test-executor",
+      "references": [
+        "0x105e946ee21874e6debf6220eacac2aa795a6390c0f8bd32da16192304e41592",
+        "0xc9af45375b6b37ed1bf22cc604edfeff4181cc143cae40b90e8da6e16fb0470e",
+        "0x12ec62d4b9015e97539753e90e93704b407f2052fc0fc42ff742f8c3a47ca999"
+      ],
+      "payload": {
+        "receiptType": "authorized_state_transition_completed",
+        "result": "executed",
+        "executionTx": "test-usdc-transfer-002",
+        "authorizationPayload": {
+          "action": "transfer",
+          "asset": "USDC",
+          "amount": "75",
+          "condition": "150 CSD delivered"
+        },
+        "conditionPayload": {
+          "conditionType": "delivery_required",
+          "requiredAsset": "CSD",
+          "requiredAmount": "150"
+        },
+        "proofPayload": {
+          "proofType": "delivery_observed",
+          "asset": "CSD",
+          "amount": "150",
+          "txid": "test-csd-txid-002",
+          "confirmations": 6
+        }
+      },
+      "objectHash": "0x461b7968a61c29208a23a665a36f79f6167db4f51eb27f996a85b4543eb74676"
+    },
+    "0xe836c44fde317a6f91ba59d4a7128392a44cd73da5c87e692e14dd843d68e9c2": {
+      "objectType": "authorization",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780684250,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [],
+      "payload": {
+        "action": "transfer",
+        "asset": "USDC",
+        "amount": "75",
+        "condition": "150 CSD delivered"
+      },
+      "objectHash": "0xe836c44fde317a6f91ba59d4a7128392a44cd73da5c87e692e14dd843d68e9c2"
+    },
+    "0xc1a19fe0fd0486aa7d197cbad0f973a29da8933f13bb60f303ee2597422d58f5": {
+      "objectType": "condition",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672400,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [
+        "0xe836c44fde317a6f91ba59d4a7128392a44cd73da5c87e692e14dd843d68e9c2"
+      ],
+      "payload": {
+        "conditionType": "delivery_required",
+        "requiredAsset": "CSD",
+        "requiredAmount": "150"
+      },
+      "objectHash": "0xc1a19fe0fd0486aa7d197cbad0f973a29da8933f13bb60f303ee2597422d58f5"
+    },
+    "0x6d3232b8a5377d9b49a72fb32a5c1ae671b0463f36231fe63c1e6f32edebe9d1": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780672500,
+      "creator": "0x0000000000000000000000000000000000000002",
+      "references": [
+        "0xc1a19fe0fd0486aa7d197cbad0f973a29da8933f13bb60f303ee2597422d58f5"
+      ],
+      "payload": {
+        "proofType": "delivery_observed",
+        "asset": "CSD",
+        "amount": "150",
+        "txid": "test-csd-txid-002",
+        "confirmations": 6
+      },
+      "objectHash": "0x6d3232b8a5377d9b49a72fb32a5c1ae671b0463f36231fe63c1e6f32edebe9d1"
+    },
+    "0xbf7bb0e8fa20b7cb372e1c11d06265466daca4433fece703657a3d8671773876": {
+      "objectType": "receipt",
+      "schemaVersion": "1",
+      "namespace": "aon:test",
+      "createdAt": 1780684377255,
+      "creator": "aon-test-executor",
+      "references": [
+        "0xe836c44fde317a6f91ba59d4a7128392a44cd73da5c87e692e14dd843d68e9c2",
+        "0xc1a19fe0fd0486aa7d197cbad0f973a29da8933f13bb60f303ee2597422d58f5",
+        "0x6d3232b8a5377d9b49a72fb32a5c1ae671b0463f36231fe63c1e6f32edebe9d1"
+      ],
+      "payload": {
+        "receiptType": "authorized_state_transition_completed",
+        "result": "executed",
+        "executionTx": "test-usdc-transfer-002",
+        "summary": null,
+        "verification": {
+          "ok": true,
+          "skipped": true,
+          "reason": "NOT_CSD_PAYMENT_PROOF"
+        }
+      },
+      "objectHash": "0xbf7bb0e8fa20b7cb372e1c11d06265466daca4433fece703657a3d8671773876"
+    },
+    "0x22568e9e4e628517e5b38ae4c2065641259c21f910c90fe6585c39d582e6f4ba": {
+      "objectType": "authorization",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761385,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [],
+      "payload": {
+        "kind": "csd_usdc_settlement",
+        "grantor": "buyer",
+        "action": "release_usdc_if_csd_paid",
+        "amount": "1"
+      },
+      "objectHash": "0x22568e9e4e628517e5b38ae4c2065641259c21f910c90fe6585c39d582e6f4ba"
+    },
+    "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508": {
+      "objectType": "condition",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761398,
+      "creator": "0x0000000000000000000000000000000000000001",
+      "references": [
+        "0x22568e9e4e628517e5b38ae4c2065641259c21f910c90fe6585c39d582e6f4ba"
+      ],
+      "payload": {
+        "conditionType": "csd_payment",
+        "expectedRecipientScriptPubKey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+        "expectedAmount": "100000000",
+        "minConfirmations": 1
+      },
+      "objectHash": "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508"
+    },
+    "0x6ac03e5303a6eb083dc05598d220e1314bc2a146c1036200a11b45c190604a95": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761892613,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508"
+      ],
+      "payload": {
+        "proofType": "csd_payment",
+        "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+        "proof": {
+          "block_hash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "confirmations": 603,
+          "genesis_hash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52",
+          "header": {
+            "bits": 453460517,
+            "merkle": "0xb785391420d1f4f4a939d308ffc1146540a3562d41ee597ff8e2dab8bb90c908",
+            "nonce": 3345263583,
+            "prev": "0x000000000002cf9c2281cc12571627b615f901ada45a1c751b4c44cf621500a3",
+            "time": 1780688544,
+            "version": 1
+          },
+          "height": 26283,
+          "merkle_branch": [
+            {
+              "hash": "0x3b523339a0f5bf2bae8b552113318ecd3a962ff621273e230b8b835833316151",
+              "position": "left"
+            }
+          ],
+          "ok": true,
+          "scanned": 603,
+          "tx": {
+            "app": {
+              "type": "None"
+            },
+            "inputs": [
+              {
+                "prev_txid": "0xbcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188",
+                "script_sig": "0x400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21",
+                "vout": 1
+              }
+            ],
+            "locktime": 0,
+            "outputs": [
+              {
+                "script_pubkey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+                "value": 100000000,
+                "vout": 0
+              },
+              {
+                "script_pubkey": "0x06918145530adbd147c4e68c5f108983c646c9ab",
+                "value": 4799980000,
+                "vout": 1
+              }
+            ],
+            "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+            "version": 1
+          },
+          "tx_index": 1,
+          "tx_raw": "0x010000000100000000000000bcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188010000006300000000000000400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21020000000000000000e1f50500000000d4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58e0e1191e0100000006918145530adbd147c4e68c5f108983c646c9ab0000000000000000",
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63"
+        },
+        "expectedRecipientScriptPubKey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+        "expectedAmount": "100000000",
+        "minConfirmations": 1
+      },
+      "objectHash": "0x6ac03e5303a6eb083dc05598d220e1314bc2a146c1036200a11b45c190604a95"
+    },
+    "0x5ce61e123e60df39fdd9bd6301bd0d7accab7f0fa283f098dbf3b3b748021e25": {
+      "objectType": "receipt",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761897974,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x22568e9e4e628517e5b38ae4c2065641259c21f910c90fe6585c39d582e6f4ba",
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508",
+        "0x6ac03e5303a6eb083dc05598d220e1314bc2a146c1036200a11b45c190604a95"
+      ],
+      "payload": {
+        "receiptType": "authorized_state_transition_completed",
+        "result": "executed",
+        "executionTx": null,
+        "summary": null,
+        "verification": {
+          "ok": true,
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+          "blockHash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "height": 26283,
+          "confirmations": 603,
+          "genesisHash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52"
+        }
+      },
+      "objectHash": "0x5ce61e123e60df39fdd9bd6301bd0d7accab7f0fa283f098dbf3b3b748021e25"
+    },
+    "0xc6f8c816ad07d316d396d3fd49688955d7f51148b6b328716735502ddab6b7ce": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761950889,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508"
+      ],
+      "payload": {
+        "proofType": "csd_payment",
+        "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+        "proof": {
+          "block_hash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "confirmations": 604,
+          "genesis_hash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52",
+          "header": {
+            "bits": 453460517,
+            "merkle": "0xb785391420d1f4f4a939d308ffc1146540a3562d41ee597ff8e2dab8bb90c908",
+            "nonce": 3345263583,
+            "prev": "0x000000000002cf9c2281cc12571627b615f901ada45a1c751b4c44cf621500a3",
+            "time": 1780688544,
+            "version": 1
+          },
+          "height": 26283,
+          "merkle_branch": [
+            {
+              "hash": "0x3b523339a0f5bf2bae8b552113318ecd3a962ff621273e230b8b835833316151",
+              "position": "left"
+            }
+          ],
+          "ok": true,
+          "scanned": 604,
+          "tx": {
+            "app": {
+              "type": "None"
+            },
+            "inputs": [
+              {
+                "prev_txid": "0xbcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188",
+                "script_sig": "0x400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21",
+                "vout": 1
+              }
+            ],
+            "locktime": 0,
+            "outputs": [
+              {
+                "script_pubkey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+                "value": 100000000,
+                "vout": 0
+              },
+              {
+                "script_pubkey": "0x06918145530adbd147c4e68c5f108983c646c9ab",
+                "value": 4799980000,
+                "vout": 1
+              }
+            ],
+            "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+            "version": 1
+          },
+          "tx_index": 1,
+          "tx_raw": "0x010000000100000000000000bcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188010000006300000000000000400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21020000000000000000e1f50500000000d4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58e0e1191e0100000006918145530adbd147c4e68c5f108983c646c9ab0000000000000000",
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63"
+        },
+        "expectedRecipientScriptPubKey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+        "expectedAmount": "100000000",
+        "minConfirmations": 1
+      },
+      "objectHash": "0xc6f8c816ad07d316d396d3fd49688955d7f51148b6b328716735502ddab6b7ce"
+    },
+    "0x8e6feaad0cd5547a8e9a390e4a564bec59ca2f9db017a0582ee9497a41183567": {
+      "objectType": "receipt",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780761958384,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x22568e9e4e628517e5b38ae4c2065641259c21f910c90fe6585c39d582e6f4ba",
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508",
+        "0xc6f8c816ad07d316d396d3fd49688955d7f51148b6b328716735502ddab6b7ce"
+      ],
+      "payload": {
+        "receiptType": "authorized_state_transition_completed",
+        "result": "executed",
+        "executionTx": null,
+        "summary": null,
+        "verification": {
+          "ok": true,
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+          "blockHash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "height": 26283,
+          "confirmations": 604,
+          "genesisHash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52"
+        }
+      },
+      "objectHash": "0x8e6feaad0cd5547a8e9a390e4a564bec59ca2f9db017a0582ee9497a41183567"
+    },
+    "0x911490809a89458a1158be9181cff58a9b0a5014641af2813f87fa3d29fce0a8": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780762249093,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508"
+      ],
+      "payload": {
+        "proofType": "csd_payment",
+        "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+        "proof": {
+          "block_hash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "confirmations": 607,
+          "genesis_hash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52",
+          "header": {
+            "bits": 453460517,
+            "merkle": "0xb785391420d1f4f4a939d308ffc1146540a3562d41ee597ff8e2dab8bb90c908",
+            "nonce": 3345263583,
+            "prev": "0x000000000002cf9c2281cc12571627b615f901ada45a1c751b4c44cf621500a3",
+            "time": 1780688544,
+            "version": 1
+          },
+          "height": 26283,
+          "merkle_branch": [
+            {
+              "hash": "0x3b523339a0f5bf2bae8b552113318ecd3a962ff621273e230b8b835833316151",
+              "position": "left"
+            }
+          ],
+          "ok": true,
+          "scanned": 607,
+          "tx": {
+            "app": {
+              "type": "None"
+            },
+            "inputs": [
+              {
+                "prev_txid": "0xbcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188",
+                "script_sig": "0x400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21",
+                "vout": 1
+              }
+            ],
+            "locktime": 0,
+            "outputs": [
+              {
+                "script_pubkey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+                "value": 100000000,
+                "vout": 0
+              },
+              {
+                "script_pubkey": "0x06918145530adbd147c4e68c5f108983c646c9ab",
+                "value": 4799980000,
+                "vout": 1
+              }
+            ],
+            "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+            "version": 1
+          },
+          "tx_index": 1,
+          "tx_raw": "0x010000000100000000000000bcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188010000006300000000000000400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21020000000000000000e1f50500000000d4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58e0e1191e0100000006918145530adbd147c4e68c5f108983c646c9ab0000000000000000",
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63"
+        },
+        "expectedRecipientScriptPubKey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+        "expectedAmount": "100000000",
+        "minConfirmations": 1
+      },
+      "objectHash": "0x911490809a89458a1158be9181cff58a9b0a5014641af2813f87fa3d29fce0a8"
+    },
+    "0x628f74dff3037383654f8c7e8befcb3de174e778b12501ed9e5ed05ff03f07d7": {
+      "objectType": "proof",
+      "schemaVersion": "1",
+      "namespace": "aon:csd-usdc",
+      "createdAt": 1780762258942,
+      "creator": "aon-node-v0",
+      "references": [
+        "0x696ee94b7f688fbb381693a8cf2120c086ed502cd5eb5e0e839f4d3692450508"
+      ],
+      "payload": {
+        "proofType": "csd_payment",
+        "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+        "proof": {
+          "block_hash": "0x000000000001f3783ee1145192de37d5f545c999324a66b91a607aac5c203335",
+          "confirmations": 607,
+          "genesis_hash": "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52",
+          "header": {
+            "bits": 453460517,
+            "merkle": "0xb785391420d1f4f4a939d308ffc1146540a3562d41ee597ff8e2dab8bb90c908",
+            "nonce": 3345263583,
+            "prev": "0x000000000002cf9c2281cc12571627b615f901ada45a1c751b4c44cf621500a3",
+            "time": 1780688544,
+            "version": 1
+          },
+          "height": 26283,
+          "merkle_branch": [
+            {
+              "hash": "0x3b523339a0f5bf2bae8b552113318ecd3a962ff621273e230b8b835833316151",
+              "position": "left"
+            }
+          ],
+          "ok": true,
+          "scanned": 607,
+          "tx": {
+            "app": {
+              "type": "None"
+            },
+            "inputs": [
+              {
+                "prev_txid": "0xbcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188",
+                "script_sig": "0x400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21",
+                "vout": 1
+              }
+            ],
+            "locktime": 0,
+            "outputs": [
+              {
+                "script_pubkey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+                "value": 100000000,
+                "vout": 0
+              },
+              {
+                "script_pubkey": "0x06918145530adbd147c4e68c5f108983c646c9ab",
+                "value": 4799980000,
+                "vout": 1
+              }
+            ],
+            "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63",
+            "version": 1
+          },
+          "tx_index": 1,
+          "tx_raw": "0x010000000100000000000000bcf73518bd356d83a7eaadbfbed5476845b4d14cebff7dc78f3e624d49966188010000006300000000000000400b9a273bdca365ab614854d915ce51078cf9317f1021a0a10bee370aa211dd187329a8e058a1dbe6f7d6dd7b9c9002544d4f7a1392b9b339fb2d3e10d0b552532103c0bbdc7043602f18e6742a486dbe4d570a2c4967cf380d2e27fa01407b6c4e21020000000000000000e1f50500000000d4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58e0e1191e0100000006918145530adbd147c4e68c5f108983c646c9ab0000000000000000",
+          "txid": "0x80c72b4c4970710ebf1342c6e724d946406635498d0185960651f23c103cad63"
+        },
+        "expectedRecipientScriptPubKey": "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58",
+        "expectedAmount": "100000000",
+        "minConfirmations": 1
+      },
+      "objectHash": "0x628f74dff3037383654f8c7e8befcb3de174e778b12501ed9e5ed05ff03f07d7"
+    }
+  }
+}
