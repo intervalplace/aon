@@ -15,7 +15,7 @@ import { Uint8ArrayList } from "uint8arraylist";
 
 const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
-const PUSH_PROTOCOL = "/aon/object-push/1";
+
 
 let node: Libp2p | null = null;
 let started = false;
@@ -195,19 +195,30 @@ pubsub: gossipsub({
     },
   });
 
-await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
+await node.handle(OBJECT_PROTOCOL, async ({ stream }) => {
   try {
-    const msg = await readJsonFromStream(stream);
-    if (msg.messageType !== "aon_object") return;
+    const reqBytes = await readStreamToBytes(stream);
+    const req = parseJsonBytes(reqBytes);
 
-    const obj = msg.object as AonObject;
-    if (!obj?.objectHash) return;
-    if (getObject(obj.objectHash)) return;
+    const objectHash = req.objectHash as string;
+    const object = objectHash ? getObject(objectHash) : null;
 
-    const saved = await putObject(obj);
-    console.log("[p2p] stored pushed object", saved.objectHash);
+    console.log("[p2p] object request", {
+      objectHash,
+      found: !!object,
+    });
+
+    const response = object
+      ? { ok: true, object }
+      : { ok: false, error: { code: "OBJECT_NOT_FOUND" } };
+
+    await (stream as any).send(jsonBytes(response));
+
+    if (typeof (stream as any).sendCloseWrite === "function") {
+      (stream as any).sendCloseWrite();
+    }
   } catch (err) {
-    console.error("[p2p] object push failed", err);
+    console.error("[p2p] object request failed", err);
   }
 });
 
@@ -225,22 +236,16 @@ await node.handle(PUSH_PROTOCOL, async ({ stream }) => {
 export async function announceObject(obj: AonObject) {
   if (!node || !obj.objectHash) return;
 
-  const peers = node.getPeers();
+  console.log("[p2p] announcing full object", obj.objectHash);
 
-  console.log("[p2p] pushing object", {
-    objectHash: obj.objectHash,
-    peers: peers.map((p) => p.toString()),
-  });
-
-  for (const peer of peers) {
-    pushObjectToPeer(peer, obj).catch((err) => {
-      console.error("[p2p] push failed", {
-        peer: peer.toString(),
-        objectHash: obj.objectHash,
-        error: err?.message ?? String(err),
-      });
-    });
-  }
+  await node.services.pubsub.publish(
+    TOPIC,
+    jsonBytes({
+      messageType: "aon_object",
+      object: obj,
+      announcedAt: Date.now(),
+    })
+  );
 }
 
 export function getPubsubInfo() {
