@@ -1,6 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
 import { AonObject, assertValidObject, finalizeObject } from "./object.js";
+import { verifyAuthorizationObject } from "./verifiers/authorization.js";
+
 
 const DB_PATH = process.env.AON_DB_PATH ?? "data/aon-objects.json";
 
@@ -32,6 +34,9 @@ export async function putObject(input: AonObject) {
   const objectHash = assertValidObject(input);
   const obj = finalizeObject(input);
 
+  await verifyAuthorizationObject(obj);
+
+  
   db.objects[objectHash.toLowerCase()] = obj;
   await saveStore();
 
