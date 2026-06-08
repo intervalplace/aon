@@ -16,7 +16,7 @@ const domain = {
   name: "Covenant CSD/USDC",
   version: "1",
   chainId: 1,
-  verifyingContract: "0xd3CE5f8eACF501A11299BAd2c6C72850E2FDe9AD",
+  verifyingContract: "0xB213796Fa13cdcD3859966a70993A5476e6ee9cc",
 };
 
 const types = {
