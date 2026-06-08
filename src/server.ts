@@ -19,8 +19,10 @@ import {
   startP2p,
 getPubsubInfo,
 } from "./p2p.js";
-import { executeCsdUsdcSettlementOnEvm } from "./executors/evmCsdUsdcSettlement.js";
-
+import {
+  executeCsdUsdcSettlementOnEvm,
+  lockCsdUsdcOnEvm,
+} from "./executors/evmCsdUsdcSettlement.js";
 
 const app = Fastify({ logger: true });
 
@@ -928,6 +930,86 @@ mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
     return reply.code(status).send({
       ok: false,
       error: { code },
+    });
+  }
+});
+
+
+app.post("/v1/reserves/csd-usdc/lock", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.authorizationHash) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_AUTHORIZATION_HASH" },
+      });
+    }
+
+    const authorizationHash = String(body.authorizationHash).toLowerCase();
+    const auth = getObject(authorizationHash);
+
+    if (!auth) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "AUTHORIZATION_OBJECT_NOT_FOUND" },
+      });
+    }
+
+    if (auth.objectType !== "authorization") {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "INVALID_AUTHORIZATION_OBJECT" },
+      });
+    }
+
+    if (auth.payload?.authorizationType !== "csd_usdc_release") {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "UNSUPPORTED_AUTHORIZATION_TYPE" },
+      });
+    }
+
+    const lock = await lockCsdUsdcOnEvm({
+      authorization: auth,
+    });
+
+    const reserveProof: AonObject = {
+      objectType: "proof",
+      schemaVersion: "1",
+      namespace: auth.namespace ?? "aon:csd-usdc",
+      createdAt: Date.now(),
+      creator: body.creator ?? "aon-executor-v0",
+      references: [authorizationHash],
+      payload: {
+        proofType: "evm_usdc_lock",
+        authorizationType: auth.payload.authorizationType,
+        settlementContract: lock.settlementContract,
+        lockTx: lock.lockTx,
+        executor: lock.executor,
+        buyer: lock.buyer,
+        usdc: lock.usdc,
+        lockedAmount: lock.usdcAmount,
+        status: "locked",
+        summary: body.summary ?? "USDC locked for CSD/USDC settlement",
+      },
+    };
+
+    const saved = await putObject(reserveProof);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      objectHash: saved.objectHash,
+      reserveProof: saved,
+      lock,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: {
+        code: err?.message ?? "CSD_USDC_LOCK_FAILED",
+      },
     });
   }
 });
