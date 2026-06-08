@@ -31,7 +31,7 @@ sellerCsdScriptHash:
 const domain = {
   name: "Covenant CSD/USDC",
   version: "1",
-  chainId: 84532,
+  chainId: 1,
   verifyingContract: "0xB213796Fa13cdcD3859966a70993A5476e6ee9cc",
 };
 
