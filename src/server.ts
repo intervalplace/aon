@@ -94,8 +94,8 @@ function csdUsdcTypes() {
       { name: "usdc", type: "address" },
       { name: "usdcAmount", type: "uint256" },
       { name: "minConfirmations", type: "uint256" },
-      { name: "validAfter", type: "uint256" },
-      { name: "validBefore", type: "uint256" },
+      { name: "validAfter", type: "uint64" },
+      { name: "validBefore", type: "uint64" },
       { name: "nonce", type: "bytes32" },
     ],
   };
