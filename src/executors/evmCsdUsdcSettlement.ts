@@ -181,17 +181,6 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
     blockHeight: BigInt(proofPayload?.height ?? 0),
   };
 
-const lockTx = await client.writeContract({
-  address: contract,
-  abi,
-  functionName: "lockCsdUsdcAuthorization",
-  args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE")],
-});
-
-await publicClient.waitForTransactionReceipt({
-  hash: lockTx,
-  confirmations: 1,
-});
 
 const settleTx = await client.writeContract({
   address: contract,
