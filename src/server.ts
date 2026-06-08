@@ -19,6 +19,7 @@ import {
   startP2p,
 getPubsubInfo,
 } from "./p2p.js";
+import { executeCsdUsdcSettlementOnEvm } from "./executors/evmCsdUsdcSettlement.js";
 
 
 const app = Fastify({ logger: true });
@@ -86,7 +87,7 @@ function csdUsdcTypes() {
     CsdUsdcAuthorization: [
       { name: "buyer", type: "address" },
       { name: "sellerUsdcRecipient", type: "address" },
-      { name: "sellerCsdScriptHash", type: "bytes20" },
+{ name: "sellerCsdScriptHash", type: "bytes32" },
       { name: "csdGenesisHash", type: "bytes32" },
       { name: "tradeIntentHash", type: "bytes32" },
       { name: "csdAmount", type: "uint256" },
@@ -140,9 +141,13 @@ async function executeGraphAction(args: {
     };
   }
 
-  if (mode === "contract") {
-    throw new Error("CONTRACT_EXECUTOR_NOT_IMPLEMENTED");
-  }
+if (mode === "contract") {
+  return await executeCsdUsdcSettlementOnEvm({
+    authorization: args.authorization,
+    condition: args.condition,
+    proof: args.proof,
+  });
+}
 
   throw new Error("UNKNOWN_EXECUTOR_MODE");
 }
