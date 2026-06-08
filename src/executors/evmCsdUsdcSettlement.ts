@@ -1,6 +1,6 @@
 import { createWalletClient, http, getAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { baseSepolia } from "viem/chains";
+import { mainnet } from "viem/chains";
 
 const abi = [
   {
@@ -137,7 +137,7 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
 
   const client = createWalletClient({
     account,
-    chain: baseSepolia,
+    chain: mainnet,
     transport: http(rpcUrl),
   });
 
