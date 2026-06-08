@@ -1,4 +1,4 @@
-import { createWalletClient, http, getAddress, type Hex } from "viem";
+import { createWalletClient, createPublicClient, http, getAddress, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet } from "viem/chains";
 
@@ -141,6 +141,11 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
     transport: http(rpcUrl),
   });
 
+  const publicClient = createPublicClient({
+  chain: mainnet,
+  transport: http(rpcUrl),
+});
+
   const auth = args.authorization.payload.authorization;
   const sig = args.authorization.signature?.signature;
   const csdTxid = args.proof.payload?.txid ?? args.proof.payload?.proof?.txid;
@@ -176,19 +181,29 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
     blockHeight: BigInt(proofPayload?.height ?? 0),
   };
 
-  const lockTx = await client.writeContract({
-    address: contract,
-    abi,
-    functionName: "lockCsdUsdcAuthorization",
-    args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE")],
-  });
+const lockTx = await client.writeContract({
+  address: contract,
+  abi,
+  functionName: "lockCsdUsdcAuthorization",
+  args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE")],
+});
 
-  const settleTx = await client.writeContract({
-    address: contract,
-    abi,
-    functionName: "settleCsdUsdc",
-    args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE"), proofTuple],
-  });
+await publicClient.waitForTransactionReceipt({
+  hash: lockTx,
+  confirmations: 1,
+});
+
+const settleTx = await client.writeContract({
+  address: contract,
+  abi,
+  functionName: "settleCsdUsdc",
+  args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE"), proofTuple],
+});
+
+await publicClient.waitForTransactionReceipt({
+  hash: settleTx,
+  confirmations: 1,
+});
 
   return {
     executed: true,
