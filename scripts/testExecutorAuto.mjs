@@ -105,8 +105,10 @@ const next = await get("/v1/executable/next?namespace=aon:csd-usdc");
 console.log("NEXT", next.next?.authorization?.objectHash ?? null);
 
 const consumed = await post("/v1/executor/consume", {
-  namespace: "aon:csd-usdc",
-  auto: true,
+  authorizationHash: auth.objectHash,
+  conditionHash: condition.objectHash,
+  proofHash: proof.objectHash,
+  mode: "contract",
 });
 
 console.log("RECEIPT", consumed.objectHash);
