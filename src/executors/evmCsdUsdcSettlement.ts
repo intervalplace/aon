@@ -126,7 +126,7 @@ function asHex(x: any, code: string): Hex {
 
 export async function executeCsdUsdcSettlementOnEvm(args: {
   authorization: any;
-  condition: any;
+  reserve: any;
   proof: any;
 }) {
   const contract = getAddress(requireEnv("AON_SETTLEMENT_CONTRACT"));
@@ -194,16 +194,15 @@ await publicClient.waitForTransactionReceipt({
   confirmations: 1,
 });
 
-  return {
-    executed: true,
-    mode: "contract",
-    executionTx: settleTx,
-    result: "contract_settlement_submitted",
-    details: {
-      lockTx,
+return {
+  executed: true,
+  mode: "contract",
+  executionTx: settleTx,
+  result: "contract_settlement_submitted",
+  details: {
       settleTx,
-    },
-  };
+  },
+};
 }
 
 export async function lockCsdUsdcOnEvm(args: {
