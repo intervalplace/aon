@@ -71,6 +71,46 @@ const abi = [
     ],
     outputs: [],
   },
+
+  { type: "error", name: "UnauthorizedExecutor", inputs: [] },
+  { type: "error", name: "BadSignature", inputs: [] },
+  { type: "error", name: "InvalidProofAttestation", inputs: [] },
+  { type: "error", name: "InsufficientConfirmations", inputs: [] },
+  { type: "error", name: "TransferFailed", inputs: [] },
+
+  {
+    type: "error",
+    name: "AuthorizationRevoked",
+    inputs: [{ name: "authHash", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "AuthorizationExpired",
+    inputs: [{ name: "authHash", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "AuthorizationAlreadyFinalized",
+    inputs: [{ name: "authHash", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "AuthorizationLocked",
+    inputs: [
+      { name: "authHash", type: "bytes32" },
+      { name: "lockedUntil", type: "uint256" },
+    ],
+  },
+  {
+    type: "error",
+    name: "AuthorizationNotLocked",
+    inputs: [{ name: "authHash", type: "bytes32" }],
+  },
+  {
+    type: "error",
+    name: "CsdTxAlreadyConsumed",
+    inputs: [{ name: "csdTxid", type: "bytes32" }],
+  },
 ] as const;
 
 function requireEnv(name: string) {
