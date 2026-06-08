@@ -11,7 +11,7 @@ const now = Math.floor(Date.now() / 1000);
 
 const authorization = {
   buyer: account.address,
-  sellerUsdcRecipient: getAddress("0x0000000000000000000000000000000000000002"),
+  sellerUsdcRecipient: getAddress("0xc271dd5164bDD49B6FedAA8ea1537Cb4020681D1"),
 sellerCsdScriptHash:
   "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58000000000000000000000000",
   csdGenesisHash:
@@ -19,7 +19,7 @@ sellerCsdScriptHash:
   tradeIntentHash:
     "0x1111111111111111111111111111111111111111111111111111111111111111",
   csdAmount: "100000000",
-  usdc: getAddress("0x0000000000000000000000000000000000000003"),
+  usdc: getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
   usdcAmount: "1000000",
   minConfirmations: "1",
   validAfter: String(now - 60),
