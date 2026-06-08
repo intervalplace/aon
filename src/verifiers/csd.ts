@@ -41,6 +41,22 @@ function readU64LE(buf: Buffer, off: number) {
   return Number(buf.readBigUInt64LE(off));
 }
 
+function normalizeCsdScriptHash(x: string) {
+  const v = x.toLowerCase();
+
+  if (!v.startsWith("0x")) throw new Error("INVALID_CSD_SCRIPT_HASH");
+
+  // bytes20
+  if (v.length === 42) return v;
+
+  // bytes32 where bytes20 is left-aligned and zero-padded
+  if (v.length === 66 && v.endsWith("000000000000000000000000")) {
+    return `0x${v.slice(2, 42)}`;
+  }
+
+  throw new Error("INVALID_CSD_SCRIPT_HASH_LENGTH");
+}
+
 // CSD txid = double-sha256(tx serialization with input script_sig removed)
 function csdTxidFromRaw(txRaw: Hex): Hex {
   const raw = hexToBuf(txRaw);
@@ -140,9 +156,13 @@ export function verifyCsdPaymentProof(args: {
     throw new Error("CSD_GENESIS_HASH_MISMATCH");
   }
 
+  const expectedScript = normalizeCsdScriptHash(expectedRecipientScriptPubKey);
+
   const paid = proof.tx.outputs.some((o: any) => {
+    if (typeof o.script_pubkey !== "string") return false;
+
     return (
-      o.script_pubkey.toLowerCase() === expectedRecipientScriptPubKey.toLowerCase() &&
+      normalizeCsdScriptHash(o.script_pubkey) === expectedScript &&
       BigInt(o.value) >= expectedAmount
     );
   });
@@ -219,8 +239,8 @@ const proofExpectedIntentHash = proofObj.payload.expectedIntentHash;
 if (
   typeof proofExpectedRecipientScriptPubKey === "string" &&
   typeof expectedRecipientScriptPubKey === "string" &&
-  proofExpectedRecipientScriptPubKey.toLowerCase() !==
-    expectedRecipientScriptPubKey.toLowerCase()
+  normalizeCsdScriptHash(proofExpectedRecipientScriptPubKey) !==
+    normalizeCsdScriptHash(expectedRecipientScriptPubKey)
 ) {
   throw new Error("PROOF_CONDITION_RECIPIENT_MISMATCH");
 }
