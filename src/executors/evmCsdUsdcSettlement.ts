@@ -216,3 +216,68 @@ await publicClient.waitForTransactionReceipt({
     },
   };
 }
+
+export async function lockCsdUsdcOnEvm(args: {
+  authorization: any;
+}) {
+  const contract = getAddress(requireEnv("AON_SETTLEMENT_CONTRACT"));
+  const rpcUrl = requireEnv("AON_EVM_RPC_URL");
+  const privateKey = asHex(requireEnv("AON_EXECUTOR_PRIVATE_KEY"), "INVALID_EXECUTOR_PRIVATE_KEY");
+
+  const account = privateKeyToAccount(privateKey);
+
+  const client = createWalletClient({
+    account,
+    chain: mainnet,
+    transport: http(rpcUrl),
+  });
+
+  const publicClient = createPublicClient({
+    chain: mainnet,
+    transport: http(rpcUrl),
+  });
+
+  const auth = args.authorization.payload.authorization;
+  const sig = args.authorization.signature?.signature;
+
+  if (!sig) throw new Error("AUTH_SIGNATURE_MISSING");
+
+  const authTuple = {
+    buyer: getAddress(auth.buyer),
+    sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
+    sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
+    csdGenesisHash: asHex(auth.csdGenesisHash, "INVALID_CSD_GENESIS_HASH"),
+    tradeIntentHash: asHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
+    csdAmount: BigInt(auth.csdAmount),
+    usdc: getAddress(auth.usdc),
+    usdcAmount: BigInt(auth.usdcAmount),
+    minConfirmations: BigInt(auth.minConfirmations),
+    validAfter: BigInt(auth.validAfter),
+    validBefore: BigInt(auth.validBefore),
+    nonce: asHex(auth.nonce, "INVALID_NONCE"),
+  };
+
+  const lockTx = await client.writeContract({
+    address: contract,
+    abi,
+    functionName: "lockCsdUsdcAuthorization",
+    args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE")],
+  });
+
+  const receipt = await publicClient.waitForTransactionReceipt({
+    hash: lockTx,
+    confirmations: 1,
+  });
+
+  return {
+    ok: true,
+    mode: "contract",
+    lockTx,
+    receipt,
+    settlementContract: contract,
+    executor: account.address,
+    buyer: auth.buyer,
+    usdc: auth.usdc,
+    usdcAmount: String(auth.usdcAmount),
+  };
+}
