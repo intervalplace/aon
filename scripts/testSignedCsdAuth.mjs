@@ -29,10 +29,10 @@ sellerCsdScriptHash:
 };
 
 const domain = {
-  name: "CsdUsdcSettlement",
+  name: "Covenant CSD/USDC",
   version: "1",
   chainId: 84532,
-  verifyingContract: getAddress("0x0000000000000000000000000000000000000004"),
+  verifyingContract: "0xYOUR_CONTRACT",
 };
 
 const types = {
