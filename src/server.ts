@@ -362,7 +362,7 @@ app.get("/v1/executable", async (req) => {
   };
 });
 
-app.get("/v1/receipts/by-condition/:reserveHash", async (req) => {
+app.get("/v1/receipts/by-reserve/:reserveHash", async (req) => {
   const reserveHash = ((req.params as any).reserveHash as string).toLowerCase();
 
   const receipts = listObjects({
@@ -439,7 +439,7 @@ app.post("/v1/receipts/from-executable", async (req, reply) => {
   } catch (err: any) {
     const code = err?.message ?? "RECEIPT_CREATION_FAILED";
     const status =
-      code === "CONDITION_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
+      code === "RESERVE_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
         ? 409
         : code === "OBJECT_NOT_FOUND"
           ? 404
@@ -452,7 +452,7 @@ app.post("/v1/receipts/from-executable", async (req, reply) => {
   }
 });
 
-app.get("/v1/receipts/canonical/by-condition/:reserveHash", async (req) => {
+app.get("/v1/receipts/canonical/by-reserve/:reserveHash", async (req) => {
   const reserveHash = ((req.params as any).reserveHash as string).toLowerCase();
 
   const receipts = listObjects({
@@ -499,7 +499,7 @@ app.post("/v1/proofs/csd/from-txid", async (req, reply) => {
     if (!body.reserveHash) {
       return reply.code(400).send({
         ok: false,
-        error: { code: "MISSING_CONDITION_HASH" },
+        error: { code: "MISSING_RESERVE_HASH" },
       });
     }
 
@@ -832,7 +832,7 @@ mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
   } catch (err: any) {
     const code = err?.message ?? "EXECUTOR_CONSUME_FAILED";
     const status =
-      code === "CONDITION_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
+      code === "RESERVE_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
         ? 409
         : code === "OBJECT_NOT_FOUND" || code === "NO_EXECUTABLE_GRAPH_AVAILABLE"
           ? 404
