@@ -38,14 +38,14 @@ const types = {
 
 const authorization = {
   buyer: account.address,
-  sellerUsdcRecipient: "0x0000000000000000000000000000000000000002",
+  sellerUsdcRecipient: "0xc271dd5164bDD49B6FedAA8ea1537Cb4020681D1",
 sellerCsdScriptHash:
   "0xd4da77ed0cfd74ca14ed41e4cb3e43d053ea8d58000000000000000000000000",
   csdGenesisHash: "0x00000052c2821f71b19c3d79dfabfb12d4076ba15d83b47d008e582aad6c0d52",
   tradeIntentHash: `0x${crypto.randomUUID().replaceAll("-", "").padEnd(64, "0")}`,
   csdAmount: "100000000",
-  usdc: "0x0000000000000000000000000000000000000003",
-  usdcAmount: "1000000",
+  usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+  usdcAmount: "1",
   minConfirmations: "1",
   validAfter: String(now - 60),
   validBefore: String(now + 3600),
