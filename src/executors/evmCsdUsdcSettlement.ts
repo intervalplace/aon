@@ -5,7 +5,7 @@ import { baseSepolia } from "viem/chains";
 const abi = [
   {
     type: "function",
-    name: "settle",
+    name: "lockCsdUsdcAuthorization",
     stateMutability: "nonpayable",
     inputs: [
       {
@@ -14,22 +14,60 @@ const abi = [
         components: [
           { name: "buyer", type: "address" },
           { name: "sellerUsdcRecipient", type: "address" },
-          { name: "sellerCsdScriptHash", type: "bytes20" },
+          { name: "sellerCsdScriptHash", type: "bytes32" },
           { name: "csdGenesisHash", type: "bytes32" },
           { name: "tradeIntentHash", type: "bytes32" },
           { name: "csdAmount", type: "uint256" },
           { name: "usdc", type: "address" },
           { name: "usdcAmount", type: "uint256" },
           { name: "minConfirmations", type: "uint256" },
-          { name: "validAfter", type: "uint256" },
-          { name: "validBefore", type: "uint256" },
+          { name: "validAfter", type: "uint64" },
+          { name: "validBefore", type: "uint64" },
           { name: "nonce", type: "bytes32" },
         ],
       },
-      { name: "signature", type: "bytes" },
-      { name: "csdTxid", type: "bytes32" },
-      { name: "aonConditionHash", type: "bytes32" },
-      { name: "aonProofHash", type: "bytes32" },
+      { name: "authSig", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "settleCsdUsdc",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "auth",
+        type: "tuple",
+        components: [
+          { name: "buyer", type: "address" },
+          { name: "sellerUsdcRecipient", type: "address" },
+          { name: "sellerCsdScriptHash", type: "bytes32" },
+          { name: "csdGenesisHash", type: "bytes32" },
+          { name: "tradeIntentHash", type: "bytes32" },
+          { name: "csdAmount", type: "uint256" },
+          { name: "usdc", type: "address" },
+          { name: "usdcAmount", type: "uint256" },
+          { name: "minConfirmations", type: "uint256" },
+          { name: "validAfter", type: "uint64" },
+          { name: "validBefore", type: "uint64" },
+          { name: "nonce", type: "bytes32" },
+        ],
+      },
+      { name: "authSig", type: "bytes" },
+      {
+        name: "proof",
+        type: "tuple",
+        components: [
+          { name: "csdTxid", type: "bytes32" },
+          { name: "csdGenesisHash", type: "bytes32" },
+          { name: "sellerCsdScriptHash", type: "bytes32" },
+          { name: "tradeIntentHash", type: "bytes32" },
+          { name: "csdAmount", type: "uint256" },
+          { name: "confirmations", type: "uint256" },
+          { name: "blockHash", type: "bytes32" },
+          { name: "blockHeight", type: "uint256" },
+        ],
+      },
     ],
     outputs: [],
   },
@@ -70,36 +108,55 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
   if (!sig) throw new Error("AUTH_SIGNATURE_MISSING");
   if (!csdTxid) throw new Error("CSD_TXID_MISSING");
 
-  const txHash = await client.writeContract({
+  const authTuple = {
+    buyer: getAddress(auth.buyer),
+    sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
+    sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
+    csdGenesisHash: asHex(auth.csdGenesisHash, "INVALID_CSD_GENESIS_HASH"),
+    tradeIntentHash: asHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
+    csdAmount: BigInt(auth.csdAmount),
+    usdc: getAddress(auth.usdc),
+    usdcAmount: BigInt(auth.usdcAmount),
+    minConfirmations: BigInt(auth.minConfirmations),
+    validAfter: BigInt(auth.validAfter),
+    validBefore: BigInt(auth.validBefore),
+    nonce: asHex(auth.nonce, "INVALID_NONCE"),
+  };
+
+  const proofPayload = args.proof.payload?.proof;
+
+  const proofTuple = {
+    csdTxid: asHex(csdTxid, "INVALID_CSD_TXID"),
+    csdGenesisHash: asHex(proofPayload?.genesis_hash, "INVALID_PROOF_GENESIS_HASH"),
+    sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
+    tradeIntentHash: asHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
+    csdAmount: BigInt(auth.csdAmount),
+    confirmations: BigInt(proofPayload?.confirmations ?? 0),
+    blockHash: asHex(proofPayload?.block_hash, "INVALID_PROOF_BLOCK_HASH"),
+    blockHeight: BigInt(proofPayload?.height ?? 0),
+  };
+
+  const lockTx = await client.writeContract({
     address: contract,
     abi,
-    functionName: "settle",
-    args: [
-      {
-        buyer: getAddress(auth.buyer),
-        sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
-        sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
-        csdGenesisHash: asHex(auth.csdGenesisHash, "INVALID_CSD_GENESIS_HASH"),
-        tradeIntentHash: asHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
-        csdAmount: BigInt(auth.csdAmount),
-        usdc: getAddress(auth.usdc),
-        usdcAmount: BigInt(auth.usdcAmount),
-        minConfirmations: BigInt(auth.minConfirmations),
-        validAfter: BigInt(auth.validAfter),
-        validBefore: BigInt(auth.validBefore),
-        nonce: asHex(auth.nonce, "INVALID_NONCE"),
-      },
-      asHex(sig, "INVALID_AUTH_SIGNATURE"),
-      asHex(csdTxid, "INVALID_CSD_TXID"),
-      asHex(args.condition.objectHash, "INVALID_CONDITION_HASH"),
-      asHex(args.proof.objectHash, "INVALID_PROOF_HASH"),
-    ],
+    functionName: "lockCsdUsdcAuthorization",
+    args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE")],
+  });
+
+  const settleTx = await client.writeContract({
+    address: contract,
+    abi,
+    functionName: "settleCsdUsdc",
+    args: [authTuple, asHex(sig, "INVALID_AUTH_SIGNATURE"), proofTuple],
   });
 
   return {
     executed: true,
     mode: "contract",
-    executionTx: txHash,
+    executionTx: settleTx,
     result: "contract_settlement_submitted",
+    details: {
+      lockTx,
+      settleTx,
+    },
   };
-}
