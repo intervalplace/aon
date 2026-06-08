@@ -257,15 +257,21 @@ export async function lockCsdUsdcOnEvm(args: {
     confirmations: 1,
   });
 
-  return {
-    ok: true,
-    mode: "contract",
-    lockTx,
-    receipt,
-    settlementContract: contract,
-    executor: account.address,
-    buyer: auth.buyer,
-    usdc: auth.usdc,
-    usdcAmount: String(auth.usdcAmount),
-  };
+return {
+  ok: true,
+  mode: "contract",
+  lockTx,
+  receipt: {
+    transactionHash: receipt.transactionHash,
+    blockHash: receipt.blockHash,
+    blockNumber: receipt.blockNumber.toString(),
+    status: receipt.status,
+    gasUsed: receipt.gasUsed.toString(),
+  },
+  settlementContract: contract,
+  executor: account.address,
+  buyer: auth.buyer,
+  usdc: auth.usdc,
+  usdcAmount: String(auth.usdcAmount),
+};
 }
