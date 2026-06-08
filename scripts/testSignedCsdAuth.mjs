@@ -4,7 +4,7 @@ import { getAddress } from "viem";
 const AON = process.env.AON ?? "http://127.0.0.1:8787";
 
 const account = privateKeyToAccount(
-  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  "0x4019e96887def59e26a0929378394432f1b3986f42029269720f249943bf5fb5"
 );
 
 const now = Math.floor(Date.now() / 1000);
@@ -32,7 +32,7 @@ const domain = {
   name: "Covenant CSD/USDC",
   version: "1",
   chainId: 84532,
-  verifyingContract: "0xd3CE5f8eACF501A11299BAd2c6C72850E2FDe9AD",
+  verifyingContract: "0xB213796Fa13cdcD3859966a70993A5476e6ee9cc",
 };
 
 const types = {
