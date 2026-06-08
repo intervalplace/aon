@@ -39,15 +39,15 @@ const types = {
   CsdUsdcAuthorization: [
     { name: "buyer", type: "address" },
     { name: "sellerUsdcRecipient", type: "address" },
-    { name: "sellerCsdScriptHash", type: "bytes20" },
+    { name: "sellerCsdScriptHash", type: "bytes32" },
     { name: "csdGenesisHash", type: "bytes32" },
     { name: "tradeIntentHash", type: "bytes32" },
     { name: "csdAmount", type: "uint256" },
     { name: "usdc", type: "address" },
     { name: "usdcAmount", type: "uint256" },
     { name: "minConfirmations", type: "uint256" },
-    { name: "validAfter", type: "uint256" },
-    { name: "validBefore", type: "uint256" },
+    { name: "validAfter", type: "uint64" },
+    { name: "validBefore", type: "uint64" },
     { name: "nonce", type: "bytes32" },
   ],
 };
