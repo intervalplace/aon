@@ -15,7 +15,7 @@ const now = Math.floor(Date.now() / 1000);
 const domain = {
   name: "Covenant CSD/USDC",
   version: "1",
-  chainId: 84532,
+  chainId: 1,
   verifyingContract: "0xd3CE5f8eACF501A11299BAd2c6C72850E2FDe9AD",
 };
 
