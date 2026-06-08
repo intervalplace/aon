@@ -108,7 +108,7 @@ export async function executeCsdUsdcSettlementOnEvm(args: {
   if (!sig) throw new Error("AUTH_SIGNATURE_MISSING");
   if (!csdTxid) throw new Error("CSD_TXID_MISSING");
 
-  const authTuple = {
+    const authTuple = {
     buyer: getAddress(auth.buyer),
     sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
     sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
