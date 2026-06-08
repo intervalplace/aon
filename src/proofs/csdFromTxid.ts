@@ -12,7 +12,7 @@ export async function fetchCsdProofByTxid(txid: string) {
 }
 
 export async function makeCsdPaymentProofObject(args: {
-  conditionHash: string;
+  reserveHash: string;
   txid: string;
   expectedRecipientScriptPubKey?: string;
   expectedAmount?: string | number | bigint;
@@ -27,7 +27,7 @@ export async function makeCsdPaymentProofObject(args: {
     namespace: "aon:csd-usdc",
     createdAt: Date.now(),
     creator: "aon-node-v0",
-    references: [args.conditionHash],
+    references: [args.reserveHash],
     payload: {
       proofType: "csd_payment",
       txid: args.txid,
