@@ -123,6 +123,32 @@ async function readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any>
   throw new Error("P2P_JSON_MESSAGE_INCOMPLETE");
 }
 
+async function writeJsonToStream(stream: any, msg: unknown) {
+  const bytes = jsonBytes(msg);
+
+  if (typeof stream.sink === "function") {
+    await stream.sink([bytes]);
+    return;
+  }
+
+  if (stream.sink && typeof stream.sink[Symbol.asyncIterator] === "function") {
+    await stream.sink([bytes]);
+    return;
+  }
+
+  if (typeof stream.send === "function") {
+    await stream.send(yamuxBytes(msg));
+    return;
+  }
+
+  if (stream.source && typeof stream.source.sink === "function") {
+    await stream.source.sink([bytes]);
+    return;
+  }
+
+  throw new Error("P2P_STREAM_WRITE_UNSUPPORTED");
+}
+
 async function fetchObjectFromPeer(peerId: any, objectHash: string) {
   if (!node) throw new Error("P2P_NOT_STARTED");
 
@@ -133,7 +159,7 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
 
 const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
 
-await stream.sink([jsonBytes({ objectHash })]);
+await writeJsonToStream(stream, { objectHash });
 
 if (typeof stream.sendCloseWrite === "function") {
   stream.sendCloseWrite();
@@ -274,10 +300,10 @@ await node.handle(OBJECT_PROTOCOL, async (evt: any) => {
 
     if (!objectHash || typeof objectHash !== "string") {
 
-await stream.sink([jsonBytes({
+await writeJsonToStream(stream, {
         ok: false,
         error: { code: "MISSING_OBJECT_HASH" },
-})]);
+});
       return;
     }
 
@@ -285,19 +311,19 @@ await stream.sink([jsonBytes({
 
     if (!obj) {
 
-await stream.sink([jsonBytes({
+await writeJsonToStream(stream, {
   ok: false,
   error: { code: "OBJECT_NOT_FOUND" },
-})]);
+});
 
       return;
     }
 
-await stream.sink([jsonBytes({
+await writeJsonToStream(stream, {
   ok: true,
   objectHash,
   object: obj,
-})]);
+});
 
     if (typeof stream.sendCloseWrite === "function") {
       stream.sendCloseWrite();
@@ -316,11 +342,11 @@ await node.handle(PEER_PROTOCOL, async (evt: any) => {
   try {
     console.log("[p2p] incoming peer exchange request");
 
-    await stream.sink([jsonBytes({
+    await writeJsonToStream(stream, {
       ok: true,
       self: selfPeerInfo(),
       peers: node?.getPeers().map((p) => p.toString()) ?? [],
-    })]);
+    });
   } catch (err) {
     console.error("[p2p] peer exchange failed", err);
   }
@@ -355,7 +381,7 @@ export async function announceObject(obj: AonObject) {
     try {
       const stream: any = await node.dialProtocol(peer, ANNOUNCE_PROTOCOL);
 
-      await stream.sink([jsonBytes(announcement)]);
+      await writeJsonToStream(stream, (announcement));
 
       if (typeof stream.close === "function") {
         await stream.close();
@@ -433,10 +459,10 @@ export async function exchangePeersWith(peerIdString: string) {
   const peerId = peerIdFromString(peerIdString);
   const stream: any = await node.dialProtocol(peerId, PEER_PROTOCOL);
 
-  await stream.sink([jsonBytes({
+  await writeJsonToStream(stream, {
     messageType: "aon_peer_exchange_request",
     from: selfPeerInfo(),
-  })]);
+  });
 
   const response = await readJsonFromStream(stream.source ?? stream);
 
