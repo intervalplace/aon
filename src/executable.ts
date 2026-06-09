@@ -16,8 +16,16 @@ export function findExecutableGraphs(
     (!opts?.namespace || o.namespace === opts.namespace)
   );
 
-  const conditions = objects.filter((o) => o.objectType === "condition");
-  const proofs = objects.filter((o) => o.objectType === "proof");
+  const reserves = objects.filter((o) =>
+    o.objectType === "reserve" &&
+    (!opts?.namespace || o.namespace === opts.namespace)
+  );
+
+  const proofs = objects.filter((o) =>
+    o.objectType === "proof" &&
+    (!opts?.namespace || o.namespace === opts.namespace)
+  );
+
   const receipts = objects.filter((o) =>
     o.objectType === "receipt" &&
     (!opts?.namespace || o.namespace === opts.namespace)
@@ -27,54 +35,49 @@ export function findExecutableGraphs(
 
   for (const auth of authorizations) {
     if (!auth.objectHash) continue;
-
     const authHash = auth.objectHash.toLowerCase();
 
-    const relatedConditions = conditions.filter((c) =>
-      lowerRefs(c).includes(authHash)
+    const relatedReserves = reserves.filter((r) =>
+      lowerRefs(r).includes(authHash)
     );
 
-    for (const condition of relatedConditions) {
-      if (!condition.objectHash) continue;
+    for (const reserve of relatedReserves) {
+      if (!reserve.objectHash) continue;
+      const reserveHash = reserve.objectHash.toLowerCase();
 
-      const conditionHash = condition.objectHash.toLowerCase();
-
-      const conditionConsumed = receipts.some((r) =>
-        lowerRefs(r).includes(conditionHash)
+      const reserveConsumed = receipts.some((r) =>
+        lowerRefs(r).includes(reserveHash)
       );
 
       const relatedProofs = proofs.filter((p) =>
-        lowerRefs(p).includes(conditionHash)
+        lowerRefs(p).includes(reserveHash)
       );
 
       for (const proof of relatedProofs) {
         if (!proof.objectHash) continue;
-
         const proofHash = proof.objectHash.toLowerCase();
 
         const exactReceipt = receipts.find((r) => {
           const refs = lowerRefs(r);
           return (
             refs.includes(authHash) &&
-            refs.includes(conditionHash) &&
+            refs.includes(reserveHash) &&
             refs.includes(proofHash)
           );
         });
 
         const status = exactReceipt
           ? "completed"
-          : conditionConsumed
+          : reserveConsumed
             ? "consumed"
             : "executable";
 
-        if (!opts?.includeCompleted && status !== "executable") {
-          continue;
-        }
+        if (!opts?.includeCompleted && status !== "executable") continue;
 
         executable.push({
           status,
           authorization: auth,
-          condition,
+          reserve,
           proof,
           receipt: exactReceipt ?? null,
         });
