@@ -149,15 +149,15 @@ async function fetchObjectFromPeer(peerId: any, objectHash: string) {
     objectHash,
   });
 
-  const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
+const stream: any = await node.dialProtocol(peerId, OBJECT_PROTOCOL);
 
-await stream.send(yamuxBytes({ objectHash }));
+await stream.sink([jsonBytes({ objectHash })]);
 
 if (typeof stream.sendCloseWrite === "function") {
   stream.sendCloseWrite();
 }
 
-const response = await readJsonFromStream(stream);
+const response = await readJsonFromStream(stream.source ?? stream);
 
 if (typeof stream.close === "function") {
   await stream.close();
@@ -274,28 +274,31 @@ await node.handle(OBJECT_PROTOCOL, async (evt: any) => {
     const objectHash = msg.objectHash;
 
     if (!objectHash || typeof objectHash !== "string") {
-      await stream.send(yamuxBytes({
+
+await stream.sink([jsonBytes({
         ok: false,
         error: { code: "MISSING_OBJECT_HASH" },
-      }));
+})]);
       return;
     }
 
     const obj = getObject(objectHash);
 
     if (!obj) {
-      await stream.send(yamuxBytes({
-        ok: false,
-        error: { code: "OBJECT_NOT_FOUND" },
-      }));
+
+await stream.sink([jsonBytes({
+  ok: false,
+  error: { code: "OBJECT_NOT_FOUND" },
+})]);
+
       return;
     }
 
-    await stream.send(yamuxBytes({
-      ok: true,
-      objectHash,
-      object: obj,
-    }));
+await stream.sink([jsonBytes({
+  ok: true,
+  objectHash,
+  object: obj,
+})]);
 
     if (typeof stream.sendCloseWrite === "function") {
       stream.sendCloseWrite();
