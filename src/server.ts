@@ -115,6 +115,52 @@ function objectRefsLower(obj: any) {
   return (obj.references ?? []).map((x: string) => x.toLowerCase());
 }
 
+function latestFirst(a: any, b: any) {
+  return Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0);
+}
+
+function hasReceiptReferencing(hash: string) {
+  const h = hash.toLowerCase();
+
+  return listObjects({ objectType: "receipt" }).some((r: any) =>
+    objectRefsLower(r).includes(h)
+  );
+}
+
+function hasReserveForAuthorization(authHash: string) {
+  const h = authHash.toLowerCase();
+
+  return listObjects({ objectType: "reserve" }).some((r: any) =>
+    objectRefsLower(r).includes(h)
+  );
+}
+
+function hasProofForReserve(reserveHash: string) {
+  const h = reserveHash.toLowerCase();
+
+  return listObjects({ objectType: "proof" }).some((p: any) =>
+    objectRefsLower(p).includes(h)
+  );
+}
+
+function summarizeAuth(auth: any) {
+  const a = auth.payload?.authorization ?? {};
+
+  return {
+    objectHash: auth.objectHash,
+    objectType: auth.objectType,
+    namespace: auth.namespace,
+    createdAt: auth.createdAt,
+    buyer: a.buyer,
+    sellerUsdcRecipient: a.sellerUsdcRecipient,
+    csdAmount: a.csdAmount,
+    usdcAmount: a.usdcAmount,
+    usdc: a.usdc,
+    validBefore: a.validBefore,
+    payload: auth.payload,
+  };
+}
+
 async function executeGraphAction(args: {
   authorization: any;
   reserve: any;
@@ -359,6 +405,76 @@ app.get("/v1/executable", async (req) => {
       namespace: q.namespace,
       includeCompleted: q.includeCompleted === "true",
     }),
+  };
+});
+
+app.get("/v1/authorizations/open", async (req) => {
+  const q = req.query as any;
+
+  const authorizations = listObjects({
+    objectType: "authorization",
+    namespace: q.namespace,
+  })
+    .filter((a: any) => a.payload?.authorizationType === "csd_usdc_release")
+    .filter((a: any) => !hasReserveForAuthorization(a.objectHash))
+    .sort(latestFirst)
+    .map(summarizeAuth);
+
+  return {
+    ok: true,
+    count: authorizations.length,
+    authorizations,
+  };
+});
+
+app.get("/v1/reserves/open", async (req) => {
+  const q = req.query as any;
+
+  const reserves = listObjects({
+    objectType: "reserve",
+    namespace: q.namespace,
+  })
+    .filter((r: any) => !hasReceiptReferencing(r.objectHash))
+    .sort(latestFirst);
+
+  return {
+    ok: true,
+    count: reserves.length,
+    reserves,
+  };
+});
+
+app.get("/v1/executable/open", async (req) => {
+  const q = req.query as any;
+
+  const executable = findExecutableGraphs(listObjects(), {
+    namespace: q.namespace,
+    includeCompleted: false,
+  })
+    .filter((x: any) => x.status === "executable" && isGraphConsumable(x))
+    .sort((a: any, b: any) =>
+      Number(b.proof?.createdAt ?? 0) - Number(a.proof?.createdAt ?? 0)
+    );
+
+  return {
+    ok: true,
+    count: executable.length,
+    executable,
+  };
+});
+
+app.get("/v1/receipts", async (req) => {
+  const q = req.query as any;
+
+  const receipts = listObjects({
+    objectType: "receipt",
+    namespace: q.namespace,
+  }).sort(latestFirst);
+
+  return {
+    ok: true,
+    count: receipts.length,
+    receipts,
   };
 });
 
