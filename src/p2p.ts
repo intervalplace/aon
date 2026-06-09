@@ -26,6 +26,8 @@ const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
 const ANNOUNCE_PROTOCOL = "/aon/object-announce/1";
 
+const PEER_PROTOCOL = "/aon/peers/1";
+
 let node: Libp2p | null = null;
 let started = false;
 
@@ -185,6 +187,26 @@ async function handleAnnouncement(msg: any) {
   }
 }
 
+function knownPeerAddrs() {
+  if (!node) return [];
+
+  return node.getPeers().map((peerId) => ({
+    peerId: peerId.toString(),
+    addrs: node!
+      .getMultiaddrs()
+      .map((a) => a.toString()),
+  }));
+}
+
+function selfPeerInfo() {
+  if (!node) return null;
+
+  return {
+    peerId: node.peerId.toString(),
+    addrs: node.getMultiaddrs().map((a) => a.toString()),
+  };
+}
+
 export async function startP2p() {
   if (started && node) return node;
 
@@ -287,6 +309,23 @@ await stream.sink([jsonBytes({
   }
 });
 
+
+await node.handle(PEER_PROTOCOL, async (evt: any) => {
+  const stream = evt.stream ?? evt;
+
+  try {
+    console.log("[p2p] incoming peer exchange request");
+
+    await stream.sink([jsonBytes({
+      ok: true,
+      self: selfPeerInfo(),
+      peers: node?.getPeers().map((p) => p.toString()) ?? [],
+    })]);
+  } catch (err) {
+    console.error("[p2p] peer exchange failed", err);
+  }
+});
+
   node.services.pubsub.addEventListener("message", handleAnnouncement);
   await node.services.pubsub.subscribe(TOPIC);
 
@@ -386,6 +425,22 @@ export async function requestObjectFromPeer(peerIdString: string, objectHash: st
   const peerId = peerIdFromString(peerIdString);
 
   return await fetchObjectFromPeer(peerId, objectHash);
+}
+
+export async function exchangePeersWith(peerIdString: string) {
+  if (!node) throw new Error("P2P_NOT_STARTED");
+
+  const peerId = peerIdFromString(peerIdString);
+  const stream: any = await node.dialProtocol(peerId, PEER_PROTOCOL);
+
+  await stream.sink([jsonBytes({
+    messageType: "aon_peer_exchange_request",
+    from: selfPeerInfo(),
+  })]);
+
+  const response = await readJsonFromStream(stream.source ?? stream);
+
+  return response;
 }
 
 export async function dialPeer(addr: string) {
