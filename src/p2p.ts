@@ -24,7 +24,7 @@ import { Uint8ArrayList } from "uint8arraylist";
 
 const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
-const PUSH_PROTOCOL = "/aon/object-push/1";
+const ANNOUNCE_PROTOCOL = "/aon/object-announce/1";
 
 let node: Libp2p | null = null;
 let started = false;
@@ -121,26 +121,6 @@ async function readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any>
   throw new Error("P2P_JSON_MESSAGE_INCOMPLETE");
 }
 
-async function pushObjectToPeer(peerId: any, obj: AonObject) {
-  if (!node || !obj.objectHash) return;
-
-  const stream: any = await node.dialProtocol(peerId, PUSH_PROTOCOL);
-
-  await stream.send(yamuxBytes({
-    messageType: "aon_object",
-    object: obj,
-  }));
-
-  if (typeof stream.sendCloseWrite === "function") {
-    stream.sendCloseWrite();
-  }
-
-  console.log("[p2p] pushed object", {
-    objectHash: obj.objectHash,
-    peer: peerId.toString(),
-  });
-}
-
 async function fetchObjectFromPeer(peerId: any, objectHash: string) {
   if (!node) throw new Error("P2P_NOT_STARTED");
 
@@ -174,29 +154,32 @@ if (typeof stream.close === "function") {
   return saved;
 }
 
+async function processObjectAnnouncement(data: any, fromPeer: any) {
+  const objectHash = data.objectHash;
+
+  console.log("[p2p] received object announcement", {
+    objectHash,
+    from: fromPeer?.toString?.(),
+  });
+
+  if (!objectHash || typeof objectHash !== "string") return;
+  if (getObject(objectHash)) return;
+  if (!fromPeer) return;
+
+  const saved = await fetchObjectFromPeer(fromPeer, objectHash);
+
+  if (saved.objectHash) {
+    await announceObject(saved);
+  }
+}
+
 async function handleAnnouncement(msg: any) {
   try {
     const data = parseJsonBytes(msg.detail.data);
 
     if (data.messageType !== "aon_object_announcement") return;
 
-    const objectHash = data.objectHash;
-    const from = msg.detail.from;
-
-    console.log("[p2p] received object announcement", {
-      objectHash,
-      from: from?.toString?.(),
-    });
-
-    if (!objectHash || typeof objectHash !== "string") return;
-    if (getObject(objectHash)) return;
-    if (!from) return;
-
-    const saved = await fetchObjectFromPeer(from, objectHash);
-
-    if (saved.objectHash) {
-      await announceObject(saved);
-    }
+    await processObjectAnnouncement(data, msg.detail.from);
   } catch (err) {
     console.error("[p2p] object announcement failed", err);
   }
@@ -240,27 +223,21 @@ directPeers: bootstrapPeers.map((addr) => ({
     },
   });
 
-await node.handle(PUSH_PROTOCOL, async (evt: any) => {
+await node.handle(ANNOUNCE_PROTOCOL, async (evt: any) => {
   const stream = evt.stream ?? evt;
+
   try {
-    console.log("[p2p] incoming push stream");
-    const msg = await readJsonFromStream(stream);
+    console.log("[p2p] incoming direct hash announcement");
 
-    if (msg.messageType !== "aon_object") return;
+    const msg = await readJsonFromStream(stream.source ?? stream);
 
-    const obj = msg.object as AonObject;
-    if (!obj?.objectHash) return;
+    if (msg.messageType !== "aon_object_announcement") return;
 
-    if (getObject(obj.objectHash)) {
-      console.log("[p2p] already have pushed object", obj.objectHash);
-      return;
-    }
+    const fromPeer = evt.connection?.remotePeer ?? null;
 
-    const saved = await putObject(obj);
-
-    console.log("[p2p] stored pushed object", saved.objectHash);
+    await processObjectAnnouncement(msg, fromPeer);
   } catch (err) {
-    console.error("[p2p] object push failed", err);
+    console.error("[p2p] direct announcement failed", err);
   }
 });
 
@@ -333,9 +310,29 @@ export async function announceObject(obj: AonObject) {
 
   await node.services.pubsub.publish(TOPIC, jsonBytes(announcement));
 
+  const peers = node.getPeers();
+
+  for (const peer of peers) {
+    try {
+      const stream: any = await node.dialProtocol(peer, ANNOUNCE_PROTOCOL);
+
+      await stream.sink([jsonBytes(announcement)]);
+
+      if (typeof stream.close === "function") {
+        await stream.close();
+      }
+    } catch (err: any) {
+      console.error("[p2p] direct hash announce failed", {
+        peer: peer.toString(),
+        objectHash: obj.objectHash,
+        error: err?.message ?? String(err),
+      });
+    }
+  }
+
   console.log("[p2p] announced object hash", {
     objectHash: obj.objectHash,
-    peers: node.getPeers().map((p) => p.toString()),
+    peers: peers.map((p) => p.toString()),
   });
 }
 
