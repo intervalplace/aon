@@ -18,6 +18,7 @@ import {
   requestObjectFromPeer,
   startP2p,
 getPubsubInfo,
+exchangePeersWith,
 } from "./p2p.js";
 import {
   executeCsdUsdcSettlementOnEvm,
@@ -1040,5 +1041,32 @@ return {
     });
   }
 });
+
+
+app.post("/v1/p2p/exchange", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.peerId) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_PEER_ID" },
+      });
+    }
+
+    const result = await exchangePeersWith(body.peerId);
+
+    return {
+      ok: true,
+      result,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "P2P_EXCHANGE_FAILED" },
+    });
+  }
+});
+
 
 await app.listen({ port, host: "0.0.0.0" });
