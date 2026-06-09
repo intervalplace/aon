@@ -178,28 +178,27 @@ async function handleAnnouncement(msg: any) {
   try {
     const data = parseJsonBytes(msg.detail.data);
 
-    if (data.messageType !== "aon_object") return;
+    if (data.messageType !== "aon_object_announcement") return;
 
-    const obj = data.object as AonObject;
-    const objectHash = obj?.objectHash;
+    const objectHash = data.objectHash;
+    const from = msg.detail.from;
 
-    console.log("[p2p] received object gossip", {
+    console.log("[p2p] received object announcement", {
       objectHash,
-      from: msg.detail.from?.toString?.(),
+      from: from?.toString?.(),
     });
 
-    if (!objectHash) return;
+    if (!objectHash || typeof objectHash !== "string") return;
     if (getObject(objectHash)) return;
+    if (!from) return;
 
-    const saved = await putObject(obj);
-
-    console.log("[p2p] stored gossiped object", saved.objectHash);
+    const saved = await fetchObjectFromPeer(from, objectHash);
 
     if (saved.objectHash) {
       await announceObject(saved);
     }
   } catch (err) {
-    console.error("[p2p] object gossip failed", err);
+    console.error("[p2p] object announcement failed", err);
   }
 }
 
@@ -265,7 +264,48 @@ await node.handle(PUSH_PROTOCOL, async (evt: any) => {
   }
 });
 
+await node.handle(OBJECT_PROTOCOL, async (evt: any) => {
+  const stream = evt.stream ?? evt;
 
+  try {
+    console.log("[p2p] incoming object request");
+
+    const msg = await readJsonFromStream(stream);
+    const objectHash = msg.objectHash;
+
+    if (!objectHash || typeof objectHash !== "string") {
+      await stream.send(yamuxBytes({
+        ok: false,
+        error: { code: "MISSING_OBJECT_HASH" },
+      }));
+      return;
+    }
+
+    const obj = getObject(objectHash);
+
+    if (!obj) {
+      await stream.send(yamuxBytes({
+        ok: false,
+        error: { code: "OBJECT_NOT_FOUND" },
+      }));
+      return;
+    }
+
+    await stream.send(yamuxBytes({
+      ok: true,
+      objectHash,
+      object: obj,
+    }));
+
+    if (typeof stream.sendCloseWrite === "function") {
+      stream.sendCloseWrite();
+    }
+
+    console.log("[p2p] served object", { objectHash });
+  } catch (err) {
+    console.error("[p2p] object request failed", err);
+  }
+});
 
   node.services.pubsub.addEventListener("message", handleAnnouncement);
   await node.services.pubsub.subscribe(TOPIC);
@@ -281,24 +321,19 @@ await node.handle(PUSH_PROTOCOL, async (evt: any) => {
 export async function announceObject(obj: AonObject) {
   if (!node || !obj.objectHash) return;
 
-  const peers = node.getPeers();
-
-  console.log("[p2p] pushing object", {
+  const announcement = {
+    messageType: "aon_object_announcement",
     objectHash: obj.objectHash,
-    peers: peers.map((p) => p.toString()),
-  });
+    summary: objectSummary(obj),
+    announcedAt: Date.now(),
+  };
 
-  for (const peer of peers) {
-    try {
-      await pushObjectToPeer(peer, obj);
-    } catch (err: any) {
-      console.error("[p2p] push failed", {
-        peer: peer.toString(),
-        objectHash: obj.objectHash,
-        error: err?.message ?? String(err),
-      });
-    }
-  }
+  await node.services.pubsub.publish(TOPIC, jsonBytes(announcement));
+
+  console.log("[p2p] announced object hash", {
+    objectHash: obj.objectHash,
+    peers: node.getPeers().map((p) => p.toString()),
+  });
 }
 
 export function getPubsubInfo() {
@@ -345,8 +380,12 @@ export function getP2pInfo() {
   };
 }
 
-export async function requestObjectFromPeer(_peerIdString: string, _objectHash: string) {
-  throw new Error("P2P_REQUEST_RESPONSE_DISABLED_USE_GOSSIP_V0");
+export async function requestObjectFromPeer(peerIdString: string, objectHash: string) {
+  if (!node) throw new Error("P2P_NOT_STARTED");
+
+  const peerId = peerIdFromString(peerIdString);
+
+  return await fetchObjectFromPeer(peerId, objectHash);
 }
 
 export async function dialPeer(addr: string) {
