@@ -295,7 +295,12 @@ async function handleAnnouncement(msg: any) {
 
     if (data.messageType !== "aon_object_announcement") return;
 
-    await processObjectAnnouncement(data, msg.detail.from);
+const fromPeer =
+  msg.detail.from ??
+  (data.from?.peerId ? peerIdFromString(data.from.peerId) : null);
+
+await processObjectAnnouncement(data, fromPeer);
+
   } catch (err) {
     console.error("[p2p] object announcement failed", err);
   }
@@ -369,9 +374,12 @@ await node.handle(ANNOUNCE_PROTOCOL, async (evt: any) => {
 
     if (msg.messageType !== "aon_object_announcement") return;
 
-    const fromPeer = evt.connection?.remotePeer ?? null;
+const fromPeer =
+  evt.connection?.remotePeer ??
+  (msg.from?.peerId ? peerIdFromString(msg.from.peerId) : null);
 
-    await processObjectAnnouncement(msg, fromPeer);
+await processObjectAnnouncement(msg, fromPeer);
+
   } catch (err) {
     console.error("[p2p] direct announcement failed", err);
   }
@@ -462,12 +470,13 @@ setInterval(() => {
 export async function announceObject(obj: AonObject) {
   if (!node || !obj.objectHash) return;
 
-  const announcement = {
-    messageType: "aon_object_announcement",
-    objectHash: obj.objectHash,
-    summary: objectSummary(obj),
-    announcedAt: Date.now(),
-  };
+const announcement = {
+  messageType: "aon_object_announcement",
+  objectHash: obj.objectHash,
+  summary: objectSummary(obj),
+  from: selfPeerInfo(),
+  announcedAt: Date.now(),
+};
 
   await node.services.pubsub.publish(TOPIC, jsonBytes(announcement));
 
