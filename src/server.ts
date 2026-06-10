@@ -51,6 +51,13 @@ function enrichExecutableGraph(graph: any) {
   };
 }
 
+function receiptHasExistingReserve(receipt: any) {
+  return objectRefsLower(receipt).some((h: string) => {
+    const obj = getObject(h);
+    return obj?.objectType === "reserve";
+  });
+}
+
 function rewardAmount(graph: any) {
   return Number(graph.reward?.amount ?? 0);
 }
@@ -450,13 +457,18 @@ app.get("/v1/executable/open", async (req) => {
   };
 });
 
+
 app.get("/v1/receipts", async (req) => {
   const q = req.query as any;
 
-  const receipts = listObjects({
+  let receipts = listObjects({
     objectType: "receipt",
     namespace: q.namespace,
   }).sort(latestFirst);
+
+  if (q.current === "true") {
+    receipts = receipts.filter(receiptHasExistingReserve);
+  }
 
   return {
     ok: true,
