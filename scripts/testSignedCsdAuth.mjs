@@ -22,6 +22,8 @@ sellerCsdScriptHash:
   usdc: getAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
   usdcAmount: "1000000",
   minConfirmations: "1",
+  executorFeeToken: getAddress("0xc271dd5164bDD49B6FedAA8ea1537Cb4020681D1"),
+  executorFeeAmount: "100000", // 0.10 USDC
   validAfter: String(now - 60),
   validBefore: String(now + 3600),
   nonce:
@@ -29,8 +31,8 @@ sellerCsdScriptHash:
 };
 
 const domain = {
-  name: "Covenant CSD/USDC",
-  version: "1",
+name: "AON CSD/USDC",
+version: "2",
   chainId: 1,
   verifyingContract: "0xB213796Fa13cdcD3859966a70993A5476e6ee9cc",
 };
@@ -46,6 +48,8 @@ const types = {
     { name: "usdc", type: "address" },
     { name: "usdcAmount", type: "uint256" },
     { name: "minConfirmations", type: "uint256" },
+    { name: "executorFeeToken", type: "address" },
+    { name: "executorFeeAmount", type: "uint256" },
     { name: "validAfter", type: "uint64" },
     { name: "validBefore", type: "uint64" },
     { name: "nonce", type: "bytes32" },
