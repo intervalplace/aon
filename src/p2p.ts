@@ -36,6 +36,9 @@ const seenAnnouncements = new Set<string>();
 let node: Libp2p | null = null;
 let started = false;
 
+let pexTimer: NodeJS.Timeout | null = null;
+let stopping = false;
+
 function jsonBytes(x: unknown) {
   return fromString(JSON.stringify(x));
 }
@@ -472,10 +475,14 @@ peers: await peerInfos(),
   node.services.pubsub.addEventListener("message", handleAnnouncement);
   await node.services.pubsub.subscribe(TOPIC);
 
-setInterval(() => {
-  runPeerExchangeRound().catch((err) =>
-    console.error("[p2p] peer exchange interval failed", err)
-  );
+pexTimer = setInterval(() => {
+  if (stopping) return;
+
+  runPeerExchangeRound().catch((err) => {
+    if (stopping) return;
+
+    console.error("[p2p] peer exchange interval failed", err);
+  });
 }, Number(process.env.AON_PEX_INTERVAL_MS ?? 30_000));
 
   started = true;
@@ -607,13 +614,46 @@ async function runPeerExchangeRound() {
   for (const peer of peers) {
     try {
       await exchangePeersWith(peer.toString());
-    } catch (err: any) {
+
+          } catch (err: any) {
+      const msg = err?.message ?? String(err);
+
+      if (
+        msg.includes("stream has been reset") ||
+        msg.includes("stream that is closed") ||
+        msg.includes("connection is closing")
+      ) {
+        console.log("[p2p] peer unavailable during exchange", {
+          peer: peer.toString(),
+          error: msg,
+        });
+        continue;
+      }
+
       console.error("[p2p] peer exchange round failed", {
         peer: peer.toString(),
-        error: err?.message ?? String(err),
+        error: msg,
       });
     }
+
+      
   }
+}
+
+export async function stopP2p() {
+  stopping = true;
+
+  if (pexTimer) {
+    clearInterval(pexTimer);
+    pexTimer = null;
+  }
+
+  if (node) {
+    await node.stop();
+  }
+
+  node = null;
+  started = false;
 }
 
 export async function dialPeer(addr: string) {
