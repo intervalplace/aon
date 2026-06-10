@@ -14,7 +14,7 @@ interface IERC20 {
 contract CsdUsdcSettlement {
 
 bytes32 public constant CSD_USDC_AUTH_TYPEHASH = keccak256(
-    "CsdUsdcAuthorization(address buyer,address sellerUsdcRecipient,bytes32 sellerCsdScriptHash,bytes32 csdGenesisHash,bytes32 tradeIntentHash,uint256 csdAmount,address usdc,uint256 usdcAmount,uint256 minConfirmations,address executorFeeToken,uint256 executorFeeAmount,uint64 validAfter,uint64 validBefore,bytes32 nonce)"
+    "CsdUsdcAuthorization(address buyer,address sellerUsdcRecipient,bytes32 sellerCsdScriptHash,bytes32 csdGenesisHash,bytes32 tradeIntentHash,uint256 csdAmount,address usdc,uint256 usdcAmount,uint256 minConfirmations,uint256 executorFeeAmount,uint64 validAfter,uint64 validBefore,bytes32 nonce)"
 );
 
     bytes32 private immutable DOMAIN_SEPARATOR;
@@ -40,7 +40,6 @@ uint256 public constant SETTLEMENT_LOCK_SECONDS = 20 minutes;
         address usdc;
         uint256 usdcAmount;
         uint256 minConfirmations;
-        address executorFeeToken;
         uint256 executorFeeAmount;
         uint64 validAfter;
         uint64 validBefore;
@@ -130,7 +129,6 @@ abi.encode(
     auth.usdc,
     auth.usdcAmount,
     auth.minConfirmations,
-    auth.executorFeeToken,
     auth.executorFeeAmount,
     auth.validAfter,
     auth.validBefore,
@@ -161,7 +159,6 @@ if (usdcLocked[authHash]) revert AuthorizationLocked(authHash, lockedUntil[authH
 uint256 lockAmount = auth.usdcAmount;
 
 if (auth.executorFeeAmount > 0) {
-    if (auth.executorFeeToken != auth.usdc) {
         revert InvalidExecutorFee();
     }
 
