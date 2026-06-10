@@ -495,10 +495,7 @@ export async function exchangePeersWith(peerIdString: string) {
 
   const response = await readJsonFromStream(stream.source ?? stream);
 
-peers: await peerInfos(),
-
-  return response;
-}
+return { ...response, peers: await peerInfos(), };
 
 export async function dialPeer(addr: string) {
   if (!node) throw new Error("P2P_NOT_STARTED");
