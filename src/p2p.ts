@@ -64,28 +64,34 @@ async function peerInfos() {
   if (!node) return [];
 
   const peers = node.getPeers();
-
   const out = [];
 
   for (const peerId of peers) {
     const peerIdString = peerId.toString();
 
-    const addrs =
+    const rawAddrs =
       node.peerStore && typeof node.peerStore.get === "function"
         ? ((await node.peerStore.get(peerId))?.addresses ?? []).map((a: any) =>
             a.multiaddr?.toString?.() ?? a.toString?.()
           )
         : [];
 
+    const addrs = rawAddrs
+      .filter(Boolean)
+      .map((addr: string) =>
+        addr.includes("/p2p/")
+          ? addr
+          : `${addr}/p2p/${peerIdString}`
+      );
+
     out.push({
       peerId: peerIdString,
-      addrs: addrs.filter(Boolean),
+      addrs,
     });
   }
 
   return out;
 }
-
 
 function peerIdFromMultiaddrString(addr: string) {
   const marker = "/p2p/";
@@ -495,8 +501,7 @@ export async function exchangePeersWith(peerIdString: string) {
 
   const response = await readJsonFromStream(stream.source ?? stream);
 
-return { ...response, peers: await peerInfos(), };
-
+  return response;
 }
 
 export async function dialPeer(addr: string) {
