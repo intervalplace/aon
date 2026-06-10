@@ -151,25 +151,28 @@ function lockCsdUsdcAuthorization(
 if (usdcLocked[authHash]) revert AuthorizationLocked(authHash, lockedUntil[authHash]);
 
     if (finalizedAuthorization[authHash]) revert AuthorizationAlreadyFinalized(authHash);
-    if (registry.revokedAuth(authHash)) revert AuthorizationRevoked(authHash);
     if (block.timestamp < auth.validAfter || block.timestamp > auth.validBefore) {
         revert AuthorizationExpired(authHash);
     }
 
     if (_recover(authHash, authSig) != auth.buyer) revert BadSignature();
 
-if (!IERC20(auth.usdc).transferFrom(auth.buyer, address(this), auth.usdcAmount)) {
-    revert TransferFailed();
-}
 
-  uint256 lockAmount = auth.usdcAmount;
+uint256 lockAmount = auth.usdcAmount;
 
 if (auth.executorFeeAmount > 0) {
-    if (auth.executorFeeToken != auth.usdc) revert InvalidExecutorFee();
+    if (auth.executorFeeToken != auth.usdc) {
+        revert InvalidExecutorFee();
+    }
+
     lockAmount += auth.executorFeeAmount;
 }
 
-  if (!IERC20(auth.usdc).transferFrom(auth.buyer, address(this), lockAmount)) {
+if (!IERC20(auth.usdc).transferFrom(
+    auth.buyer,
+    address(this),
+    lockAmount
+)) {
     revert TransferFailed();
 }
 
@@ -234,20 +237,58 @@ if (!IERC20(auth.usdc).transfer(auth.buyer, amount)) {
 
 bool isLocked = lockedUntil[authHash] >= block.timestamp;
 
-if (registry.revokedAuth(authHash) && !isLocked) {
-    revert AuthorizationRevoked(authHash);
-}
-
 if (!isLocked) {
     revert AuthorizationNotLocked(authHash);
 }
 
+if (block.timestamp < auth.validAfter || block.timestamp > auth.validBefore) {
+    revert AuthorizationExpired(authHash);
+}
 
-      uint256 sellerAmount = auth.usdcAmount;
+if (_recover(authHash, authSig) != auth.buyer) {
+    revert BadSignature();
+}
+
+if (proof.csdGenesisHash != auth.csdGenesisHash) {
+    revert InvalidProofAttestation();
+}
+
+if (proof.tradeIntentHash != auth.tradeIntentHash) {
+    revert InvalidProofAttestation();
+}
+
+if (proof.sellerCsdScriptHash != auth.sellerCsdScriptHash) {
+    revert InvalidProofAttestation();
+}
+
+if (proof.csdAmount < auth.csdAmount) {
+    revert InvalidProofAttestation();
+}
+
+if (proof.confirmations < auth.minConfirmations) {
+    revert InsufficientConfirmations();
+}
+
+if (consumedCsdTx[proof.csdTxid]) {
+    revert CsdTxAlreadyConsumed(proof.csdTxid);
+}
+
+if (!usdcLocked[authHash]) {
+    revert AuthorizationNotLocked(authHash);
+}
+
+uint256 amount = lockedAmount[authHash];
+
+uint256 sellerAmount = auth.usdcAmount;
 uint256 feeAmount = auth.executorFeeAmount;
 uint256 totalAmount = sellerAmount + feeAmount;
 
-if (amount < totalAmount) revert TransferFailed();
+if (amount < totalAmount) {
+    revert TransferFailed();
+}
+
+consumedCsdTx[proof.csdTxid] = true;
+finalizedAuthorization[authHash] = true;
 
 lockedAmount[authHash] = 0;
 usdcLocked[authHash] = false;
@@ -261,48 +302,6 @@ if (feeAmount > 0) {
     if (!IERC20(auth.usdc).transfer(msg.sender, feeAmount)) {
         revert TransferFailed();
     }
-}
-
-        if (block.timestamp < auth.validAfter || block.timestamp > auth.validBefore) {
-            revert AuthorizationExpired(authHash);
-        }
-
-        if (_recover(authHash, authSig) != auth.buyer) revert BadSignature();
-
-        if (proof.csdGenesisHash != auth.csdGenesisHash) revert InvalidProofAttestation();
-
-        if (proof.tradeIntentHash != auth.tradeIntentHash) revert InvalidProofAttestation();
-
-        if (proof.sellerCsdScriptHash != auth.sellerCsdScriptHash) revert InvalidProofAttestation();
-        if (proof.csdAmount < auth.csdAmount) revert InvalidProofAttestation();
-        if (proof.confirmations < auth.minConfirmations) revert InsufficientConfirmations();
-        if (consumedCsdTx[proof.csdTxid]) revert CsdTxAlreadyConsumed(proof.csdTxid);
-        consumedCsdTx[proof.csdTxid] = true;
-        finalizedAuthorization[authHash] = true;
-
-      if (auth.executorFeeAmount > 0) {
-    if (!IERC20(auth.executorFeeToken).transfer(msg.sender, auth.executorFeeAmount)) {
-        revert TransferFailed();
-    }
-}
-
-if (!usdcLocked[authHash]) {
-    revert AuthorizationNotLocked(authHash);
-}
-
-uint256 amount = lockedAmount[authHash];
-
-if (amount < auth.usdcAmount) {
-    revert TransferFailed();
-}
-
-lockedAmount[authHash] = 0;
-usdcLocked[authHash] = false;
-lockedUntil[authHash] = 0;
-
-
-if (!IERC20(auth.usdc).transfer(auth.sellerUsdcRecipient, amount)) {
-    revert TransferFailed();
 }
 
 emit CsdUsdcAuthorizationFinalized(authHash, proof.csdTxid);
