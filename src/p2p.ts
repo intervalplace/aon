@@ -28,6 +28,11 @@ const ANNOUNCE_PROTOCOL = "/aon/object-announce/1";
 
 const PEER_PROTOCOL = "/aon/peers/1";
 
+const MAX_P2P_JSON_BYTES = Number(process.env.AON_MAX_P2P_JSON_BYTES ?? 1_000_000);
+const SEEN_ANNOUNCEMENT_MAX = Number(process.env.AON_SEEN_ANNOUNCEMENT_MAX ?? 10_000);
+
+const seenAnnouncements = new Set<string>();
+
 let node: Libp2p | null = null;
 let started = false;
 
@@ -169,6 +174,20 @@ function objectSummary(obj: AonObject) {
   };
 }
 
+function rememberAnnouncement(objectHash: string) {
+  const h = objectHash.toLowerCase();
+
+  if (seenAnnouncements.has(h)) return false;
+
+  seenAnnouncements.add(h);
+
+  if (seenAnnouncements.size > SEEN_ANNOUNCEMENT_MAX) {
+    const first = seenAnnouncements.values().next().value;
+    if (first) seenAnnouncements.delete(first);
+  }
+
+  return true;
+}
 
 function chunkToBytes(chunk: any): Uint8Array {
   if (chunk instanceof Uint8Array) return chunk;
@@ -196,6 +215,11 @@ async function readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any>
     if (result.done) break;
 
     const bytes = chunkToBytes(result.value);
+
+    if (out.length + bytes.length > MAX_P2P_JSON_BYTES) {
+  throw new Error("P2P_MESSAGE_TOO_LARGE");
+}
+    
     const next = new Uint8Array(out.length + bytes.length);
     next.set(out, 0);
     next.set(bytes, out.length);
@@ -213,6 +237,10 @@ async function readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any>
 
 async function writeJsonToStream(stream: any, msg: unknown) {
   const bytes = jsonBytes(msg);
+
+  if (bytes.length > MAX_P2P_JSON_BYTES) {
+  throw new Error("P2P_MESSAGE_TOO_LARGE");
+}
 
   if (typeof stream.sink === "function") {
     await stream.sink([bytes]);
@@ -279,6 +307,7 @@ async function processObjectAnnouncement(data: any, fromPeer: any) {
   });
 
   if (!objectHash || typeof objectHash !== "string") return;
+  if (!rememberAnnouncement(objectHash)) return;
   if (getObject(objectHash)) return;
   if (!fromPeer) return;
 
@@ -306,16 +335,6 @@ await processObjectAnnouncement(data, fromPeer);
   }
 }
 
-function knownPeerAddrs() {
-  if (!node) return [];
-
-  return node.getPeers().map((peerId) => ({
-    peerId: peerId.toString(),
-    addrs: node!
-      .getMultiaddrs()
-      .map((a) => a.toString()),
-  }));
-}
 
 function selfPeerInfo() {
   if (!node) return null;
@@ -486,8 +505,9 @@ const announcement = {
     try {
       const stream: any = await node.dialProtocol(peer, ANNOUNCE_PROTOCOL);
 
-      await writeJsonToStream(stream, (announcement));
+      await writeJsonToStream(stream, announcement);
 
+      
       if (typeof stream.close === "function") {
         await stream.close();
       }
