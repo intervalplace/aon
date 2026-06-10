@@ -28,7 +28,7 @@ mapping(bytes32 => uint256) public lockedUntil;
 
 mapping(bytes32 => uint256) public lockedAmount;
 
-uint256 public constant SETTLEMENT_LOCK_SECONDS = 10 minutes;
+uint256 public constant SETTLEMENT_LOCK_SECONDS = 20 minutes;
 
     struct CsdUsdcAuthorization {
         address buyer;
