@@ -50,7 +50,7 @@ async function loadOrCreatePrivateKey() {
 
   if (existsSync(keyPath)) {
     return privateKeyFromProtobuf(readFileSync(keyPath));
-  }
+  }  
 
   mkdirSync(dirname(keyPath), { recursive: true });
 
@@ -59,6 +59,33 @@ async function loadOrCreatePrivateKey() {
 
   return privateKey;
 }
+
+async function peerInfos() {
+  if (!node) return [];
+
+  const peers = node.getPeers();
+
+  const out = [];
+
+  for (const peerId of peers) {
+    const peerIdString = peerId.toString();
+
+    const addrs =
+      node.peerStore && typeof node.peerStore.get === "function"
+        ? ((await node.peerStore.get(peerId))?.addresses ?? []).map((a: any) =>
+            a.multiaddr?.toString?.() ?? a.toString?.()
+          )
+        : [];
+
+    out.push({
+      peerId: peerIdString,
+      addrs: addrs.filter(Boolean),
+    });
+  }
+
+  return out;
+}
+
 
 function peerIdFromMultiaddrString(addr: string) {
   const marker = "/p2p/";
@@ -345,7 +372,9 @@ await node.handle(PEER_PROTOCOL, async (evt: any) => {
     await writeJsonToStream(stream, {
       ok: true,
       self: selfPeerInfo(),
-      peers: node?.getPeers().map((p) => p.toString()) ?? [],
+
+peers: await peerInfos(),
+
     });
   } catch (err) {
     console.error("[p2p] peer exchange failed", err);
@@ -465,6 +494,8 @@ export async function exchangePeersWith(peerIdString: string) {
   });
 
   const response = await readJsonFromStream(stream.source ?? stream);
+
+peers: await peerInfos(),
 
   return response;
 }
