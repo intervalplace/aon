@@ -76,6 +76,34 @@ const abi = [
     outputs: [],
   },
 
+{
+  type: "function",
+  name: "refundExpiredLock",
+  stateMutability: "nonpayable",
+  inputs: [
+    {
+      name: "auth",
+      type: "tuple",
+      components: [
+        { name: "buyer", type: "address" },
+        { name: "sellerUsdcRecipient", type: "address" },
+        { name: "sellerCsdScriptHash", type: "bytes32" },
+        { name: "csdGenesisHash", type: "bytes32" },
+        { name: "tradeIntentHash", type: "bytes32" },
+        { name: "csdAmount", type: "uint256" },
+        { name: "usdc", type: "address" },
+        { name: "usdcAmount", type: "uint256" },
+        { name: "minConfirmations", type: "uint256" },
+        { name: "executorFeeAmount", type: "uint256" },
+        { name: "validAfter", type: "uint64" },
+        { name: "validBefore", type: "uint64" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    },
+  ],
+  outputs: [],
+},
+
   { type: "error", name: "UnauthorizedExecutor", inputs: [] },
   { type: "error", name: "BadSignature", inputs: [] },
   { type: "error", name: "InvalidProofAttestation", inputs: [] },
@@ -209,6 +237,75 @@ return {
       settleTx,
   },
 };
+}
+
+export async function refundExpiredCsdUsdcLockOnEvm(args: {
+  authorization: any;
+}) {
+  const contract = getAddress(requireEnv("AON_SETTLEMENT_CONTRACT"));
+  const rpcUrl = requireEnv("AON_EVM_RPC_URL");
+  const privateKey = asHex(requireEnv("AON_EXECUTOR_PRIVATE_KEY"), "INVALID_EXECUTOR_PRIVATE_KEY");
+
+  const account = privateKeyToAccount(privateKey);
+
+  const client = createWalletClient({
+    account,
+    chain: mainnet,
+    transport: http(rpcUrl),
+  });
+
+  const publicClient = createPublicClient({
+    chain: mainnet,
+    transport: http(rpcUrl),
+  });
+
+  const auth = args.authorization.payload.authorization;
+
+  const authTuple = {
+    buyer: getAddress(auth.buyer),
+    sellerUsdcRecipient: getAddress(auth.sellerUsdcRecipient),
+    sellerCsdScriptHash: asHex(auth.sellerCsdScriptHash, "INVALID_SELLER_CSD_SCRIPT_HASH"),
+    csdGenesisHash: asHex(auth.csdGenesisHash, "INVALID_CSD_GENESIS_HASH"),
+    tradeIntentHash: asHex(auth.tradeIntentHash, "INVALID_TRADE_INTENT_HASH"),
+    csdAmount: BigInt(auth.csdAmount),
+    usdc: getAddress(auth.usdc),
+    usdcAmount: BigInt(auth.usdcAmount),
+    minConfirmations: BigInt(auth.minConfirmations),
+    executorFeeAmount: BigInt(auth.executorFeeAmount ?? 0),
+    validAfter: BigInt(auth.validAfter),
+    validBefore: BigInt(auth.validBefore),
+    nonce: asHex(auth.nonce, "INVALID_NONCE"),
+  };
+
+  const refundTx = await client.writeContract({
+    address: contract,
+    abi,
+    functionName: "refundExpiredLock",
+    args: [authTuple],
+  });
+
+  const receipt = await publicClient.waitForTransactionReceipt({
+    hash: refundTx,
+    confirmations: 1,
+  });
+
+  return {
+    ok: true,
+    mode: "contract",
+    refundTx,
+    receipt: {
+      transactionHash: receipt.transactionHash,
+      blockHash: receipt.blockHash,
+      blockNumber: receipt.blockNumber.toString(),
+      status: receipt.status,
+      gasUsed: receipt.gasUsed.toString(),
+    },
+    settlementContract: contract,
+    executor: account.address,
+    buyer: auth.buyer,
+    usdc: auth.usdc,
+    refundedAmount: String(BigInt(auth.usdcAmount) + BigInt(auth.executorFeeAmount ?? 0)),
+  };
 }
 
 export async function lockCsdUsdcOnEvm(args: {
