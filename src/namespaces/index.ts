@@ -4,6 +4,10 @@ import {
   executeCsdUsdcSettlementOnEvm,
   lockCsdUsdcOnEvm,
 } from "../executors/evmCsdUsdcSettlement.js";
+import {
+  executeEvmSpotOnEvm,
+} from "../executors/evmSpotSettlement.js";
+
 
 export type NamespaceAdapter = {
   namespace: string;
@@ -141,8 +145,134 @@ export const csdUsdcAdapter: NamespaceAdapter = {
   },
 };
 
+export const evmSpotAdapter: NamespaceAdapter = {
+  namespace: "aon:evm-spot",
+  authorizationType: "evm_spot_session",
+  reserveType: "none",
+  proofType: "evm_spot_fill",
+
+  normalizeAuthorization(auth: any) {
+    return {
+      grantor: auth.grantor,
+      settlementContract: auth.settlementContract,
+      baseToken: auth.baseToken,
+      quoteToken: auth.quoteToken,
+      marketId: auth.marketId,
+      sideMask: Number(auth.sideMask),
+      maxBaseExposure: String(auth.maxBaseExposure),
+      maxQuoteExposure: String(auth.maxQuoteExposure),
+      maxExecutorFeeQuote: String(auth.maxExecutorFeeQuote ?? "0"),
+      minPrice: String(auth.minPrice),
+      maxPrice: String(auth.maxPrice),
+      validAfter: String(auth.validAfter),
+      validBefore: String(auth.validBefore),
+      authNonce: auth.authNonce,
+    };
+  },
+
+  types() {
+    return {
+      TradingSessionAuthorization: [
+        { name: "grantor", type: "address" },
+        { name: "settlementContract", type: "address" },
+        { name: "baseToken", type: "address" },
+        { name: "quoteToken", type: "address" },
+        { name: "marketId", type: "bytes32" },
+        { name: "sideMask", type: "uint8" },
+        { name: "maxBaseExposure", type: "uint256" },
+        { name: "maxQuoteExposure", type: "uint256" },
+        { name: "maxExecutorFeeQuote", type: "uint256" },
+        { name: "minPrice", type: "uint256" },
+        { name: "maxPrice", type: "uint256" },
+        { name: "validAfter", type: "uint64" },
+        { name: "validBefore", type: "uint64" },
+        { name: "authNonce", type: "bytes32" },
+      ],
+    };
+  },
+
+  summarizeAuthorization(auth: any) {
+    const a = auth.payload?.authorization ?? {};
+
+    return {
+      objectHash: auth.objectHash,
+      objectType: auth.objectType,
+      namespace: auth.namespace,
+      createdAt: auth.createdAt,
+      grantor: a.grantor,
+      baseToken: a.baseToken,
+      quoteToken: a.quoteToken,
+      marketId: a.marketId,
+      maxBaseExposure: a.maxBaseExposure,
+      maxQuoteExposure: a.maxQuoteExposure,
+      maxExecutorFeeQuote: a.maxExecutorFeeQuote ?? "0",
+      reward: {
+        token: a.quoteToken,
+        amount: String(a.maxExecutorFeeQuote ?? "0"),
+      },
+      validBefore: a.validBefore,
+      payload: auth.payload,
+    };
+  },
+
+  reward(graph: any) {
+    const fill = graph.fill ?? graph.proof;
+    const auth = graph.authorization;
+    const a = auth?.payload?.authorization ?? {};
+    const f = fill?.payload?.fill ?? fill?.payload ?? {};
+
+    return {
+      token: a.quoteToken,
+      amount: String(f.executorFeeQuoteAmount ?? "0"),
+      tokenSymbol: "QUOTE",
+      decimals: 18,
+    };
+  },
+
+  verify({ authorization, proof }: any) {
+    if (!authorization?.objectHash) throw new Error("MISSING_AUTHORIZATION");
+    if (!proof?.objectHash) throw new Error("MISSING_FILL_OBJECT");
+
+    return {
+      ok: true,
+      proofType: "evm_spot_fill",
+      reason: "EVM_SPOT_VERIFIED_ON_CHAIN_DURING_SETTLEMENT",
+    };
+  },
+
+  async execute({ authorization, reserve, proof, mode }: any) {
+    if (mode === "off") {
+      return { executed: false, mode, executionTx: null, result: "verified_only" };
+    }
+
+    if (mode === "simulate") {
+      return {
+        executed: true,
+        mode,
+        executionTx: `simulated:aon:evm-spot:${proof.objectHash}`,
+        result: "simulated_evm_spot_settlement",
+      };
+    }
+
+    if (mode === "contract") {
+      return await executeEvmSpotOnEvm({
+        authorization,
+        order: reserve,
+        fill: proof,
+      });
+    }
+
+    throw new Error("UNKNOWN_EXECUTOR_MODE");
+  },
+
+  async lock() {
+    throw new Error("EVM_SPOT_HAS_NO_RESERVE_LOCK");
+  },
+};
+
 const adapters = new Map<string, NamespaceAdapter>([
   [csdUsdcAdapter.namespace, csdUsdcAdapter],
+  [evmSpotAdapter.namespace, evmSpotAdapter],
 ]);
 
 export function getNamespaceAdapter(namespace: string) {
