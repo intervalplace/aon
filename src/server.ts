@@ -23,6 +23,7 @@ exchangePeersWith,
 import {
   executeCsdUsdcSettlementOnEvm,
   lockCsdUsdcOnEvm,
+refundExpiredCsdUsdcLockOnEvm,
 } from "./executors/evmCsdUsdcSettlement.js";
 import {
   getNamespaceAdapter,
@@ -1050,6 +1051,8 @@ const reserveObject: AonObject = {
         buyer: lock.buyer,
         usdc: lock.usdc,
         lockedAmount: lock.usdcAmount,
+executorFeeAmount: lock.executorFeeAmount,
+lockedUntil: lock.lockedUntil,
         status: "locked",
         summary: body.summary ?? "USDC locked for CSD/USDC settlement",
       },
@@ -1098,6 +1101,113 @@ app.post("/v1/p2p/exchange", async (req, reply) => {
       error: { code: err?.message ?? "P2P_EXCHANGE_FAILED" },
     });
   }
+});
+
+app.post("/v1/reserves/csd-usdc/refund-expired", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.reserveHash) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_RESERVE_HASH" },
+      });
+    }
+
+    const reserveHash = String(body.reserveHash).toLowerCase();
+    const reserve = getObject(reserveHash);
+
+    if (!reserve) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "RESERVE_OBJECT_NOT_FOUND" },
+      });
+    }
+
+    if (reserve.objectType !== "reserve") {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "INVALID_RESERVE_OBJECT" },
+      });
+    }
+
+    if (hasReceiptReferencing(reserveHash)) {
+      return reply.code(409).send({
+        ok: false,
+        error: { code: "RESERVE_ALREADY_RECEIPTED" },
+      });
+    }
+
+    const authHash = objectRefsLower(reserve)[0];
+    const auth = getObject(authHash);
+
+    if (!auth) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "AUTHORIZATION_OBJECT_NOT_FOUND" },
+      });
+    }
+
+    const refund = await refundExpiredCsdUsdcLockOnEvm({
+      authorization: auth,
+    });
+
+    const refundReceipt: AonObject = {
+      objectType: "receipt",
+      schemaVersion: "1",
+      namespace: auth.namespace,
+      createdAt: Date.now(),
+      creator: body.creator ?? "aon-refund-v0",
+      references: [authHash, reserveHash],
+      payload: {
+        receiptType: "expired_lock_refunded",
+        result: "refunded",
+        executionTx: refund.refundTx,
+        summary: body.summary ?? "Expired CSD/USDC reserve refunded to buyer",
+        refund,
+      },
+    };
+
+    const saved = await putObject(refundReceipt);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      status: "refunded",
+      objectHash: saved.objectHash,
+      receipt: saved,
+      refund,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: {
+        code: err?.message ?? "CSD_USDC_REFUND_FAILED",
+      },
+    });
+  }
+});
+
+app.get("/v1/reserves/expired", async (req) => {
+  const q = req.query as any;
+  const now = Math.floor(Date.now() / 1000);
+
+  const reserves = listObjects({
+    objectType: "reserve",
+    namespace: q.namespace,
+  })
+    .filter((r: any) => !hasReceiptReferencing(r.objectHash))
+    .filter((r: any) => {
+      const lockedUntil = Number(r.payload?.lockedUntil ?? 0);
+      return Number.isFinite(lockedUntil) && lockedUntil > 0 && lockedUntil < now;
+    })
+    .sort(latestFirst);
+
+  return {
+    ok: true,
+    count: reserves.length,
+    reserves,
+  };
 });
 
 
