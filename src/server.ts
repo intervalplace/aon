@@ -24,6 +24,10 @@ import {
   executeCsdUsdcSettlementOnEvm,
   lockCsdUsdcOnEvm,
 } from "./executors/evmCsdUsdcSettlement.js";
+import {
+  getNamespaceAdapter,
+  listNamespaceAdapters,
+} from "./namespaces/index.js";
 
 const app = Fastify({ logger: true });
 
@@ -36,6 +40,19 @@ function requireHex(x: any, code: string): Hex {
     throw new Error(code);
   }
   return x as Hex;
+}
+
+function enrichExecutableGraph(graph: any) {
+  const adapter = getNamespaceAdapter(graph.authorization.namespace);
+
+  return {
+    ...graph,
+    reward: adapter.reward(graph),
+  };
+}
+
+function rewardAmount(graph: any) {
+  return Number(graph.reward?.amount ?? 0);
 }
 
 function isGraphConsumable(graph: any) {
@@ -79,8 +96,7 @@ function normalizeCsdUsdcAuthorization(auth: any) {
     usdc: getAddress(auth.usdc),
     usdcAmount: String(auth.usdcAmount),
     minConfirmations: String(auth.minConfirmations),
-    executorFeeToken: getAddress(auth.executorFeeToken),
-    executorFeeAmount: String(auth.executorFeeAmount),
+    executorFeeAmount: String(auth.executorFeeAmount ?? "0"),
     validAfter: String(auth.validAfter),
     validBefore: String(auth.validBefore),
     nonce: requireHex(auth.nonce, "INVALID_NONCE"),
@@ -99,7 +115,6 @@ function csdUsdcTypes() {
       { name: "usdc", type: "address" },
       { name: "usdcAmount", type: "uint256" },
       { name: "minConfirmations", type: "uint256" },
-      { name: "executorFeeToken", type: "address" },
       { name: "executorFeeAmount", type: "uint256" },
       { name: "validAfter", type: "uint64" },
       { name: "validBefore", type: "uint64" },
@@ -149,21 +164,8 @@ function hasProofForReserve(reserveHash: string) {
 }
 
 function summarizeAuth(auth: any) {
-  const a = auth.payload?.authorization ?? {};
-
-  return {
-    objectHash: auth.objectHash,
-    objectType: auth.objectType,
-    namespace: auth.namespace,
-    createdAt: auth.createdAt,
-    buyer: a.buyer,
-    sellerUsdcRecipient: a.sellerUsdcRecipient,
-    csdAmount: a.csdAmount,
-    usdcAmount: a.usdcAmount,
-    usdc: a.usdc,
-    validBefore: a.validBefore,
-    payload: auth.payload,
-  };
+  const adapter = getNamespaceAdapter(auth.namespace);
+  return adapter.summarizeAuthorization(auth);
 }
 
 async function executeGraphAction(args: {
@@ -173,31 +175,14 @@ async function executeGraphAction(args: {
   mode?: string;
 }) {
   const mode = args.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate";
+  const adapter = getNamespaceAdapter(args.authorization.namespace);
 
-  if (mode === "off") {
-    return { executed: false, mode, executionTx: null, result: "verified_only" };
-  }
-
-  if (mode === "simulate") {
-    const txid = args.proof.payload?.txid ?? args.proof.payload?.proof?.txid;
-
-    return {
-      executed: true,
-      mode,
-      executionTx: `simulated:aon:${txid}`,
-      result: "simulated_settlement",
-    };
-  }
-
-  if (mode === "contract") {
-    return await executeCsdUsdcSettlementOnEvm({
-      authorization: args.authorization,
-      reserve: args.reserve,
-      proof: args.proof,
-    } as any);
-  }
-
-  throw new Error("UNKNOWN_EXECUTOR_MODE");
+  return await adapter.execute({
+    authorization: args.authorization,
+    reserve: args.reserve,
+    proof: args.proof,
+    mode,
+  });
 }
 
 async function consumeExecutableGraph(args: {
@@ -254,15 +239,13 @@ async function consumeExecutableGraph(args: {
     throw new Error("PROOF_TXID_ALREADY_CONSUMED");
   }
 
-  const authPayload = auth.payload.authorization;
+const adapter = getNamespaceAdapter(auth.namespace);
 
-  const verification = verifyCsdPaymentProof({
-    proof: proof.payload.proof,
-    expectedRecipientScriptPubKey: authPayload.sellerCsdScriptHash,
-    expectedAmount: BigInt(authPayload.csdAmount),
-    minConfirmations: Number(authPayload.minConfirmations ?? 1),
-    expectedGenesisHash: authPayload.csdGenesisHash,
-  });
+const verification = adapter.verify({
+  authorization: auth,
+  reserve,
+  proof,
+});
 
   const action = await executeGraphAction({
     authorization: auth,
@@ -406,9 +389,10 @@ app.get("/v1/executable", async (req) => {
 
   return {
     ok: true,
-    executable: findExecutableGraphs(objects, {
-      namespace: q.namespace,
-      includeCompleted: q.includeCompleted === "true",
+executable: findExecutableGraphs(objects, {
+  namespace: q.namespace,
+  includeCompleted: q.includeCompleted === "true",
+}).map(enrichExecutableGraph),
     }),
   };
 });
@@ -457,9 +441,8 @@ app.get("/v1/executable/open", async (req) => {
     includeCompleted: false,
   })
     .filter((x: any) => x.status === "executable" && isGraphConsumable(x))
-    .sort((a: any, b: any) =>
-      Number(b.proof?.createdAt ?? 0) - Number(a.proof?.createdAt ?? 0)
-    );
+    .map(enrichExecutableGraph)
+    .sort((a: any, b: any) => rewardAmount(b) - rewardAmount(a));
 
   return {
     ok: true,
@@ -667,6 +650,24 @@ return {
       },
     });
   }
+});
+
+app.get("/v1/namespaces", async () => {
+  const manifests = listObjects({
+    objectType: "namespace_manifest",
+  }).sort(latestFirst);
+
+  return {
+    ok: true,
+    count: manifests.length,
+    manifests,
+    adapters: listNamespaceAdapters().map((a) => ({
+      namespace: a.namespace,
+      authorizationType: a.authorizationType,
+      reserveType: a.reserveType,
+      proofType: a.proofType,
+    })),
+  };
 });
 
 
