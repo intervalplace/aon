@@ -34,7 +34,7 @@ const domain = {
 name: "AON CSD/USDC",
 version: "2",
   chainId: 1,
-  verifyingContract: "0xB213796Fa13cdcD3859966a70993A5476e6ee9cc",
+  verifyingContract: "0x212C08Cfefc666751323f12BB422Fffc08124bfC",
 };
 
 const types = {
