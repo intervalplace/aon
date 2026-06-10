@@ -93,6 +93,61 @@ async function peerInfos() {
   return out;
 }
 
+function isSelfPeer(peerIdString: string) {
+  return node?.peerId.toString() === peerIdString;
+}
+
+function alreadyConnected(peerIdString: string) {
+  return node?.getPeers().some((p) => p.toString() === peerIdString) ?? false;
+}
+
+async function dialPeerInfo(info: any) {
+  if (!node) throw new Error("P2P_NOT_STARTED");
+
+  if (!info?.peerId || isSelfPeer(info.peerId)) {
+    return { ok: false, skipped: true, reason: "SELF_OR_MISSING_PEER_ID" };
+  }
+
+  if (alreadyConnected(info.peerId)) {
+    return { ok: true, skipped: true, reason: "ALREADY_CONNECTED", peerId: info.peerId };
+  }
+
+  const addrs = Array.isArray(info.addrs) ? info.addrs : [];
+
+  for (const addr of addrs) {
+    try {
+      if (!addr || typeof addr !== "string") continue;
+
+      await node.dial(multiaddr(addr));
+
+      console.log("[p2p] dialed discovered peer", {
+        peerId: info.peerId,
+        addr,
+      });
+
+      return { ok: true, peerId: info.peerId, addr };
+    } catch (err: any) {
+      console.error("[p2p] discovered peer dial failed", {
+        peerId: info.peerId,
+        addr,
+        error: err?.message ?? String(err),
+      });
+    }
+  }
+
+  return { ok: false, peerId: info.peerId, error: "NO_DIALABLE_ADDR_WORKED" };
+}
+
+async function dialDiscoveredPeers(peers: any[]) {
+  const results = [];
+
+  for (const info of peers ?? []) {
+    results.push(await dialPeerInfo(info));
+  }
+
+  return results;
+}
+
 function peerIdFromMultiaddrString(addr: string) {
   const marker = "/p2p/";
   const i = addr.lastIndexOf(marker);
@@ -390,6 +445,12 @@ peers: await peerInfos(),
   node.services.pubsub.addEventListener("message", handleAnnouncement);
   await node.services.pubsub.subscribe(TOPIC);
 
+setInterval(() => {
+  runPeerExchangeRound().catch((err) =>
+    console.error("[p2p] peer exchange interval failed", err)
+  );
+}, Number(process.env.AON_PEX_INTERVAL_MS ?? 30_000));
+
   started = true;
 
   console.log("[p2p] peer id", node.peerId.toString());
@@ -501,7 +562,29 @@ export async function exchangePeersWith(peerIdString: string) {
 
   const response = await readJsonFromStream(stream.source ?? stream);
 
-  return response;
+  const dialResults = await dialDiscoveredPeers(response.peers ?? []);
+
+  return {
+    ...response,
+    dialResults,
+  };
+}
+
+async function runPeerExchangeRound() {
+  if (!node) return;
+
+  const peers = node.getPeers();
+
+  for (const peer of peers) {
+    try {
+      await exchangePeersWith(peer.toString());
+    } catch (err: any) {
+      console.error("[p2p] peer exchange round failed", {
+        peer: peer.toString(),
+        error: err?.message ?? String(err),
+      });
+    }
+  }
 }
 
 export async function dialPeer(addr: string) {
