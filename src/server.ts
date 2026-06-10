@@ -9,6 +9,7 @@ import { loadStore, putObject, getObject, listObjects } from "./store.js";
 import { getInboundReferences, getGraph } from "./refs.js";
 import { findExecutableGraphs } from "./executable.js";
 import type { AonObject } from "./object.js";
+import { findExecutableEvmSpotGraphs } from "./executableEvmSpot.js";
 import { makeCsdPaymentProofObject } from "./proofs/csdFromTxid.js";
 import { verifyCsdPaymentProof } from "./verifiers/csd.js";
 import {
@@ -43,8 +44,16 @@ function requireHex(x: any, code: string): Hex {
   return x as Hex;
 }
 
+function graphNamespace(graph: any) {
+  return (
+    graph.authorization?.namespace ??
+    graph.makerAuthorization?.namespace ??
+    graph.namespace
+  );
+}
+
 function enrichExecutableGraph(graph: any) {
-  const adapter = getNamespaceAdapter(graph.authorization.namespace);
+  const adapter = getNamespaceAdapter(graphNamespace(graph));
 
   return {
     ...graph,
@@ -75,6 +84,17 @@ function receiptHasExistingReserve(receipt: any) {
 
 function rewardAmount(graph: any) {
   return Number(graph.reward?.amount ?? 0);
+}
+
+function findExecutableByNamespace(namespace: string | undefined, includeCompleted = false) {
+  if (namespace === "aon:evm-spot") {
+    return findExecutableEvmSpotGraphs(listObjects(), { includeCompleted });
+  }
+
+  return findExecutableGraphs(listObjects(), {
+    namespace,
+    includeCompleted,
+  });
 }
 
 function isGraphConsumable(graph: any) {
@@ -459,11 +479,8 @@ app.get("/v1/reserves/open", async (req) => {
 app.get("/v1/executable/open", async (req) => {
   const q = req.query as any;
 
-  const executable = findExecutableGraphs(listObjects(), {
-    namespace: q.namespace,
-    includeCompleted: false,
-  })
-    .filter((x: any) => x.status === "executable" && isGraphConsumable(x))
+  const executable = findExecutableByNamespace(q.namespace, false)
+    .filter((x: any) => x.status === "executable")
     .map(enrichExecutableGraph)
     .sort((a: any, b: any) => rewardAmount(b) - rewardAmount(a));
 
@@ -473,7 +490,6 @@ app.get("/v1/executable/open", async (req) => {
     executable,
   };
 });
-
 
 app.get("/v1/receipts", async (req) => {
   const q = req.query as any;
@@ -907,19 +923,18 @@ app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
 app.get("/v1/executable/next", async (req) => {
   const q = req.query as any;
 
-  const executable = findExecutableGraphs(listObjects(), {
-    namespace: q.namespace,
-    includeCompleted: false,
-  });
+  const executable = findExecutableByNamespace(
+    q.namespace ?? "aon:csd-usdc",
+    false
+  );
 
   const next =
-    executable.find((x: any) => x.status === "executable" && isGraphConsumable(x)) ??
-    null;
+    executable.find((x: any) => x.status === "executable") ?? null;
 
   return {
     ok: true,
     namespace: q.namespace ?? null,
-    next,
+    next: next ? enrichExecutableGraph(next) : null,
   };
 });
 
@@ -1208,6 +1223,66 @@ app.get("/v1/reserves/expired", async (req) => {
     count: reserves.length,
     reserves,
   };
+});
+
+
+app.post("/v1/authorizations/evm-spot/from-signed-auth", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.authorization) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_AUTHORIZATION" } });
+    }
+
+    if (!body.signature) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_SIGNATURE" } });
+    }
+
+    if (!body.domain) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_EIP712_DOMAIN" } });
+    }
+
+    const adapter = getNamespaceAdapter("aon:evm-spot");
+    const authorization = adapter.normalizeAuthorization(body.authorization);
+    const signer = getAddress(body.signer ?? authorization.grantor);
+
+    if (signer.toLowerCase() !== authorization.grantor.toLowerCase()) {
+      return reply.code(400).send({ ok: false, error: { code: "SIGNER_GRANTOR_MISMATCH" } });
+    }
+
+    const obj: AonObject & { signature: any } = {
+      objectType: "authorization",
+      schemaVersion: "1",
+      namespace: body.namespace ?? "aon:evm-spot",
+      createdAt: body.createdAt ?? nowMs(),
+      creator: signer,
+      references: body.references ?? [],
+      payload: {
+        authorizationType: "evm_spot_session",
+        authorization,
+        summary: body.summary ?? null,
+      },
+      signature: {
+        scheme: "eip712",
+        signer,
+        domain: body.domain,
+        types: body.types ?? adapter.types(),
+        primaryType: body.primaryType ?? "TradingSessionAuthorization",
+        message: authorization,
+        signature: body.signature,
+      },
+    } as any;
+
+    const saved = await putObject(obj);
+    await announceObject(saved);
+
+    return { ok: true, objectHash: saved.objectHash, object: saved };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "EVM_SPOT_AUTHORIZATION_REJECTED" },
+    });
+  }
 });
 
 
