@@ -497,6 +497,8 @@ export async function exchangePeersWith(peerIdString: string) {
 
 return { ...response, peers: await peerInfos(), };
 
+}
+
 export async function dialPeer(addr: string) {
   if (!node) throw new Error("P2P_NOT_STARTED");
 
