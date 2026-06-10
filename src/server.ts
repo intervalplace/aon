@@ -393,7 +393,7 @@ executable: findExecutableGraphs(objects, {
   namespace: q.namespace,
   includeCompleted: q.includeCompleted === "true",
 }).map(enrichExecutableGraph),
-    }),
+    ),
   };
 });
 
