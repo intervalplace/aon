@@ -51,6 +51,20 @@ function enrichExecutableGraph(graph: any) {
   };
 }
 
+function isAuthorizationTimeActive(auth: any) {
+  const a = auth.payload?.authorization;
+  if (!a) return false;
+
+  const now = Math.floor(Date.now() / 1000);
+  const validAfter = Number(a.validAfter ?? 0);
+  const validBefore = Number(a.validBefore ?? 0);
+
+  if (Number.isFinite(validAfter) && now < validAfter) return false;
+  if (Number.isFinite(validBefore) && validBefore > 0 && now > validBefore) return false;
+
+  return true;
+}
+
 function receiptHasExistingReserve(receipt: any) {
   return objectRefsLower(receipt).some((h: string) => {
     const obj = getObject(h);
@@ -404,6 +418,7 @@ executable: findExecutableGraphs(objects, {
 });
 
 app.get("/v1/authorizations/open", async (req) => {
+
   const q = req.query as any;
 
   const authorizations = listObjects({
@@ -412,6 +427,7 @@ app.get("/v1/authorizations/open", async (req) => {
   })
     .filter((a: any) => a.payload?.authorizationType === "csd_usdc_release")
     .filter((a: any) => !hasReserveForAuthorization(a.objectHash))
+.filter((a: any) => isAuthorizationTimeActive(a))
     .sort(latestFirst)
     .map(summarizeAuth);
 
