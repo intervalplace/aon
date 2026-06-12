@@ -61,6 +61,14 @@ function enrichExecutableGraph(graph: any) {
   };
 }
 
+function graphPrimaryAuthorization(graph: any) {
+  return (
+    graph.authorization ??
+    graph.makerAuthorization ??
+    graph.takerAuthorization
+  );
+}
+
 function isAuthorizationTimeActive(auth: any) {
   const a = auth.payload?.authorization;
   if (!a) return false;
@@ -72,6 +80,30 @@ function isAuthorizationTimeActive(auth: any) {
   if (Number.isFinite(validAfter) && now < validAfter) return false;
   if (Number.isFinite(validBefore) && validBefore > 0 && now > validBefore) return false;
 
+  return true;
+}
+
+
+function revocationsForTarget(targetHash: string) {
+  const h = targetHash.toLowerCase();
+
+  return listObjects({ objectType: "revocation" }).filter((r: any) => {
+    const refs = objectRefsLower(r);
+    return (
+      refs.includes(h) ||
+      r.payload?.targetHash?.toLowerCase?.() === h
+    );
+  });
+}
+
+function isLocallyRevoked(targetHash: string) {
+  return revocationsForTarget(targetHash).length > 0;
+}
+
+function isAuthorizationActive(auth: any) {
+  if (!auth?.objectHash) return false;
+  if (!isAuthorizationTimeActive(auth)) return false;
+  if (isLocallyRevoked(auth.objectHash)) return false;
   return true;
 }
 
@@ -117,6 +149,8 @@ function isGraphConsumable(graph: any) {
   );
 
   if (reserveAlreadyReceipted) return false;
+
+if (isLocallyRevoked(auth.objectHash)) return false;
 
   const txidAlreadyReceipted = existingReceipts.some((r: any) =>
     r.payload?.verification?.txid?.toLowerCase?.() === proofTxid?.toLowerCase?.()
@@ -427,14 +461,22 @@ app.get("/v1/graphs/:hash", async (req) => {
 
 app.get("/v1/executable", async (req) => {
   const q = req.query as any;
-  const objects = listObjects();
+
+  const executable = findExecutableByNamespace(
+    q.namespace,
+    q.includeCompleted === "true"
+  )
+    .filter((x: any) => {
+      if (x.status !== "executable" && q.includeCompleted !== "true") return false;
+
+      const auth = graphPrimaryAuthorization(x);
+      return !auth?.objectHash || !isLocallyRevoked(auth.objectHash);
+    })
+    .map(enrichExecutableGraph);
 
   return {
     ok: true,
-executable: findExecutableGraphs(objects, {
-  namespace: q.namespace,
-  includeCompleted: q.includeCompleted === "true",
-}).map(enrichExecutableGraph),
+    executable,
   };
 });
 
@@ -448,7 +490,7 @@ app.get("/v1/authorizations/open", async (req) => {
   })
     .filter((a: any) => a.payload?.authorizationType === "csd_usdc_release")
     .filter((a: any) => !hasReserveForAuthorization(a.objectHash))
-.filter((a: any) => isAuthorizationTimeActive(a))
+.filter((a: any) => isAuthorizationActive(a))
     .sort(latestFirst)
     .map(summarizeAuth);
 
@@ -481,6 +523,10 @@ app.get("/v1/executable/open", async (req) => {
 
   const executable = findExecutableByNamespace(q.namespace, false)
     .filter((x: any) => x.status === "executable")
+.filter((x: any) => {
+  const auth = graphPrimaryAuthorization(x);
+  return auth && !isLocallyRevoked(auth.objectHash);
+})
     .map(enrichExecutableGraph)
     .sort((a: any, b: any) => rewardAmount(b) - rewardAmount(a));
 
@@ -929,7 +975,12 @@ app.get("/v1/executable/next", async (req) => {
   );
 
   const next =
-    executable.find((x: any) => x.status === "executable") ?? null;
+    executable.find((x: any) => {
+      if (x.status !== "executable") return false;
+
+      const auth = graphPrimaryAuthorization(x);
+      return auth && !isLocallyRevoked(auth.objectHash);
+    }) ?? null;
 
   return {
     ok: true,
@@ -937,7 +988,6 @@ app.get("/v1/executable/next", async (req) => {
     next: next ? enrichExecutableGraph(next) : null,
   };
 });
-
 
 app.post("/v1/executor/consume", async (req, reply) => {
   try {
@@ -948,10 +998,11 @@ app.post("/v1/executor/consume", async (req, reply) => {
     let proofHash = body.proofHash;
 
     if (body.auto === true || (!authorizationHash && !reserveHash && !proofHash)) {
-      const executable = findExecutableGraphs(listObjects(), {
-        namespace: body.namespace ?? "aon:csd-usdc",
-        includeCompleted: false,
-      });
+
+const executable = findExecutableByNamespace(
+  body.namespace ?? "aon:csd-usdc",
+  false
+);
 
 const next = executable.find((x: any) => x.status === "executable" && isGraphConsumable(x));
 
@@ -961,6 +1012,19 @@ const next = executable.find((x: any) => x.status === "executable" && isGraphCon
           error: { code: "NO_EXECUTABLE_GRAPH_AVAILABLE" },
         });
       }
+
+if (body.namespace === "aon:evm-spot") {
+
+  return reply.code(400).send({
+
+    ok: false,
+
+    error: { code: "EVM_SPOT_CONSUME_NOT_WIRED_HERE" },
+
+  });
+
+}
+
 
       authorizationHash = next.authorization.objectHash;
       reserveHash = next.reserve.objectHash;
@@ -1006,6 +1070,91 @@ mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
     return reply.code(status).send({
       ok: false,
       error: { code },
+    });
+  }
+});
+
+app.post("/v1/executor/consume-evm-spot", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    const executable = findExecutableEvmSpotGraphs(listObjects(), {
+      includeCompleted: false,
+    })
+      .filter((x: any) => x.status === "executable")
+      .filter((x: any) => {
+        const makerAuth = x.makerAuthorization;
+        const takerAuth = x.takerAuthorization;
+
+        return (
+          makerAuth?.objectHash &&
+          takerAuth?.objectHash &&
+          !isLocallyRevoked(makerAuth.objectHash) &&
+          !isLocallyRevoked(takerAuth.objectHash)
+        );
+      });
+
+    const graph =
+      body.auto === true
+        ? executable[0]
+        : executable.find((x: any) => x.fill?.objectHash === body.fillHash);
+
+    if (!graph) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "NO_EVM_SPOT_EXECUTABLE_GRAPH_AVAILABLE" },
+      });
+    }
+
+    const adapter = getNamespaceAdapter("aon:evm-spot");
+
+    const action = await adapter.execute({
+      ...graph,
+      mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
+    });
+
+    const refs = [
+      graph.makerAuthorization.objectHash,
+      graph.takerAuthorization.objectHash,
+      graph.makerOrder.objectHash,
+      graph.takerOrder.objectHash,
+      graph.fill.objectHash,
+    ];
+
+    const receipt: AonObject = {
+      objectType: "receipt",
+      schemaVersion: "1",
+      namespace: "aon:evm-spot",
+      createdAt: Date.now(),
+      creator: body.creator ?? "aon-evm-spot-executor-v0",
+      references: refs,
+      payload: {
+        receiptType: "evm_spot_fill_settled",
+        result: action.result,
+        executionTx: action.executionTx ?? null,
+        summary: body.summary ?? "EVM spot fill consumed by executor",
+        executor: {
+          mode: action.mode,
+          executed: action.executed,
+        },
+        fill: graph.fill.payload,
+      },
+    };
+
+    const saved = await putObject(receipt);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      status: "consumed",
+      objectHash: saved.objectHash,
+      receipt: saved,
+      action,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "EVM_SPOT_CONSUME_FAILED" },
     });
   }
 });
@@ -1283,6 +1432,101 @@ app.post("/v1/authorizations/evm-spot/from-signed-auth", async (req, reply) => {
       error: { code: err?.message ?? "EVM_SPOT_AUTHORIZATION_REJECTED" },
     });
   }
+});
+
+
+app.post("/v1/revocations", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.targetHash) {
+      return reply.code(400).send({
+        ok: false,
+        error: { code: "MISSING_TARGET_HASH" },
+      });
+    }
+
+    const targetHash = String(body.targetHash).toLowerCase();
+    const target = getObject(targetHash);
+
+    if (!target) {
+      return reply.code(404).send({
+        ok: false,
+        error: { code: "TARGET_OBJECT_NOT_FOUND" },
+      });
+    }
+
+    if (isLocallyRevoked(targetHash)) {
+      return reply.code(409).send({
+        ok: false,
+        error: { code: "TARGET_ALREADY_REVOKED" },
+      });
+    }
+
+if (!body.signature) {
+  return reply.code(400).send({
+    ok: false,
+    error: { code: "MISSING_REVOCATION_SIGNATURE" },
+  });
+}
+
+    const signer =
+      body.signer ??
+      target.payload?.authorization?.buyer ??
+      target.payload?.authorization?.grantor ??
+      target.creator;
+
+    const obj: AonObject & { signature?: any } = {
+      objectType: "revocation",
+      schemaVersion: "1",
+      namespace: target.namespace,
+      createdAt: body.createdAt ?? Date.now(),
+      creator: signer,
+      references: [targetHash],
+      payload: {
+        revocationType: body.revocationType ?? `${target.objectType}_revocation`,
+        targetType: target.objectType,
+        targetHash,
+        reason: body.reason ?? "user_revoked",
+      },
+      signature: body.signature
+        ? {
+            scheme: body.signature.scheme ?? "eip712",
+            signer,
+            domain: body.signature.domain,
+            types: body.signature.types,
+            primaryType: body.signature.primaryType,
+            message: body.signature.message,
+            signature: body.signature.signature,
+          }
+        : undefined,
+    } as any;
+
+    const saved = await putObject(obj);
+    await announceObject(saved);
+
+    return {
+      ok: true,
+      objectHash: saved.objectHash,
+      revocation: saved,
+    };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "REVOCATION_FAILED" },
+    });
+  }
+});
+
+app.get("/v1/revocations/by-target/:targetHash", async (req) => {
+  const targetHash = String((req.params as any).targetHash).toLowerCase();
+
+  return {
+    ok: true,
+    targetHash,
+    revoked: isLocallyRevoked(targetHash),
+    revocations: revocationsForTarget(targetHash).sort(latestFirst),
+  };
 });
 
 
