@@ -8,7 +8,7 @@ async function post(path, body) {
   });
 
   const json = await res.json();
-  if (!json.ok) throw new Error(`${path}: ${JSON.stringify(json)}`);
+  if (!json.ok) throw new Error(`${path}: ${JSON.stringify(json, null, 2)}`);
   return json;
 }
 
@@ -17,126 +17,171 @@ async function get(path) {
   return await res.json();
 }
 
+function sig(byte = "11") {
+  return `0x${byte.repeat(65)}`;
+}
+
+function hex32(byte) {
+  return `0x${byte.repeat(32)}`;
+}
+
 const now = Math.floor(Date.now() / 1000);
+
+const settlementContract =
+  process.env.AON_EVM_SPOT_SETTLEMENT_CONTRACT ??
+  "0x0000000000000000000000000000000000000009";
+
+const baseToken = "0x0000000000000000000000000000000000000010";
+const quoteToken = "0x0000000000000000000000000000000000000020";
+const marketId = hex32("aa");
+
+const domain = {
+  name: "AON EVM Spot",
+  version: "1",
+  chainId: 1,
+  verifyingContract: settlementContract,
+};
 
 const makerAuth = {
   grantor: "0x0000000000000000000000000000000000000001",
-  settlementContract: "0x0000000000000000000000000000000000000009",
-  baseToken: "0x0000000000000000000000000000000000000010",
-  quoteToken: "0x0000000000000000000000000000000000000020",
-  marketId: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  settlementContract,
+  baseToken,
+  quoteToken,
+  marketId,
   sideMask: 2,
   maxBaseExposure: "1000000000000000000",
   maxQuoteExposure: "0",
-  maxExecutorFeeQuote: "1000000",
+  maxExecutorFeeQuote: "1000000000000000",
   minPrice: "1000000000000000000",
   maxPrice: "1000000000000000000",
   validAfter: String(now - 60),
   validBefore: String(now + 3600),
-  authNonce: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  authNonce: hex32("bb"),
 };
 
 const takerAuth = {
-  ...makerAuth,
   grantor: "0x0000000000000000000000000000000000000002",
+  settlementContract,
+  baseToken,
+  quoteToken,
+  marketId,
   sideMask: 1,
   maxBaseExposure: "0",
   maxQuoteExposure: "1000000000000000000",
-  authNonce: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  maxExecutorFeeQuote: "1000000000000000",
+  minPrice: "1000000000000000000",
+  maxPrice: "1000000000000000000",
+  validAfter: String(now - 60),
+  validBefore: String(now + 3600),
+  authNonce: hex32("cc"),
 };
 
-const makerAuthObj = await post("/v1/objects", {
-  objectType: "authorization",
-  schemaVersion: "1",
-  namespace: "aon:evm-spot",
-  createdAt: Date.now(),
-  creator: makerAuth.grantor,
-  references: [],
-  payload: {
-    authorizationType: "evm_spot_session",
-    authorization: makerAuth,
-  },
-  signature: {
-    scheme: "eip712",
-    signer: makerAuth.grantor,
-    signature: "0x00",
+const makerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
+  authorization: makerAuth,
+  signature: sig("11"),
+  signer: makerAuth.grantor,
+  domain,
+});
+
+const takerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
+  authorization: takerAuth,
+  signature: sig("22"),
+  signer: takerAuth.grantor,
+  domain,
+});
+
+const makerOrder = {
+  trader: makerAuth.grantor,
+  marketId,
+  side: 0,
+  price: "1000000000000000000",
+  baseAmount: "1000000000000000000",
+  orderNonce: hex32("dd"),
+  sessionAuthHash: makerAuthObj.objectHash,
+  validAfter: String(now - 60),
+  validBefore: String(now + 3600),
+};
+
+const takerOrder = {
+  trader: takerAuth.grantor,
+  marketId,
+  side: 1,
+  price: "1000000000000000000",
+  baseAmount: "1000000000000000000",
+  orderNonce: hex32("ee"),
+  sessionAuthHash: takerAuthObj.objectHash,
+  validAfter: String(now - 60),
+  validBefore: String(now + 3600),
+};
+
+const makerOrderObj = await post("/v1/orders/evm-spot/from-signed-order", {
+  authorizationHash: makerAuthObj.objectHash,
+  order: makerOrder,
+  signature: sig("33"),
+  signer: makerOrder.trader,
+  domain,
+});
+
+const takerOrderObj = await post("/v1/orders/evm-spot/from-signed-order", {
+  authorizationHash: takerAuthObj.objectHash,
+  order: takerOrder,
+  signature: sig("44"),
+  signer: takerOrder.trader,
+  domain,
+});
+
+const fill1 = await post("/v1/fills/evm-spot", {
+  makerAuthorizationHash: makerAuthObj.objectHash,
+  takerAuthorizationHash: takerAuthObj.objectHash,
+  makerOrderHash: makerOrderObj.objectHash,
+  takerOrderHash: takerOrderObj.objectHash,
+  fill: {
+    price: "1000000000000000000",
+    baseAmount: "400000000000000000",
+    quoteAmount: "400000000000000000",
+    executorFeeQuoteAmount: "100000000000000",
+    fillNonce: hex32("f1"),
+    settlementContract,
   },
 });
 
-const takerAuthObj = await post("/v1/objects", {
-  objectType: "authorization",
-  schemaVersion: "1",
-  namespace: "aon:evm-spot",
-  createdAt: Date.now(),
-  creator: takerAuth.grantor,
-  references: [],
-  payload: {
-    authorizationType: "evm_spot_session",
-    authorization: takerAuth,
-  },
-  signature: {
-    scheme: "eip712",
-    signer: takerAuth.grantor,
-    signature: "0x00",
-  },
-});
-
-const fillObj = await post("/v1/objects", {
-  objectType: "proof",
-  schemaVersion: "1",
-  namespace: "aon:evm-spot",
-  createdAt: Date.now(),
-  creator: "aon-test-matcher",
-  references: [makerAuthObj.objectHash, takerAuthObj.objectHash],
-  payload: {
-    proofType: "evm_spot_fill",
-    settlementContract: makerAuth.settlementContract,
-    makerAuth,
-    makerAuthSig: "0x00",
-    takerAuth,
-    takerAuthSig: "0x00",
-    makerOrder: {
-      trader: makerAuth.grantor,
-      marketId: makerAuth.marketId,
-      side: 0,
-      price: "1000000000000000000",
-      baseAmount: "1000000000000000000",
-      orderNonce: "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      sessionAuthHash: makerAuthObj.objectHash,
-      validAfter: String(now - 60),
-      validBefore: String(now + 3600),
-    },
-    makerOrderSig: "0x00",
-    takerOrder: {
-      trader: takerAuth.grantor,
-      marketId: takerAuth.marketId,
-      side: 1,
-      price: "1000000000000000000",
-      baseAmount: "1000000000000000000",
-      orderNonce: "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-      sessionAuthHash: takerAuthObj.objectHash,
-      validAfter: String(now - 60),
-      validBefore: String(now + 3600),
-    },
-    takerOrderSig: "0x00",
-    fill: {
-      makerOrderHash: "0x1111111111111111111111111111111111111111111111111111111111111111",
-      takerOrderHash: "0x2222222222222222222222222222222222222222222222222222222222222222",
-      makerAuthHash: makerAuthObj.objectHash,
-      takerAuthHash: takerAuthObj.objectHash,
-      price: "1000000000000000000",
-      baseAmount: "1000000000000000000",
-      quoteAmount: "1000000000000000000",
-      executorFeeQuoteAmount: "1000000",
-      fillNonce: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    },
-  },
-});
-
-console.log({
+console.log("created first partial fill", {
   makerAuth: makerAuthObj.objectHash,
   takerAuth: takerAuthObj.objectHash,
-  fill: fillObj.objectHash,
+  makerOrder: makerOrderObj.objectHash,
+  takerOrder: takerOrderObj.objectHash,
+  fill1: fill1.objectHash,
 });
 
-console.log(await get("/v1/executable/open?namespace=aon:evm-spot"));
+console.log("open before consume:");
+console.log(JSON.stringify(await get("/v1/executable/open?namespace=aon:evm-spot"), null, 2));
+
+const consumed1 = await post("/v1/executor/consume-evm-spot", {
+  auto: true,
+  mode: "simulate",
+});
+
+console.log("consumed first partial fill:");
+console.log(JSON.stringify(consumed1, null, 2));
+
+const fill2 = await post("/v1/fills/evm-spot", {
+  makerAuthorizationHash: makerAuthObj.objectHash,
+  takerAuthorizationHash: takerAuthObj.objectHash,
+  makerOrderHash: makerOrderObj.objectHash,
+  takerOrderHash: takerOrderObj.objectHash,
+  fill: {
+    price: "1000000000000000000",
+    baseAmount: "600000000000000000",
+    quoteAmount: "600000000000000000",
+    executorFeeQuoteAmount: "100000000000000",
+    fillNonce: hex32("f2"),
+    settlementContract,
+  },
+});
+
+console.log("created second partial fill", {
+  fill2: fill2.objectHash,
+});
+
+console.log("open after first consume + second fill:");
+console.log(JSON.stringify(await get("/v1/executable/open?namespace=aon:evm-spot"), null, 2));
