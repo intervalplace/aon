@@ -95,19 +95,16 @@ export const csdUsdcAdapter: NamespaceAdapter = {
     };
   },
 
-  reward(graph: any) {
-    const fill = graph.fill;
-    const makerAuth = graph.makerAuthorization;
-    const a = makerAuth?.payload?.authorization ?? {};
-    const f = fill?.payload?.fill ?? {};
+reward(graph: any) {
+  const a = graph.authorization?.payload?.authorization ?? {};
 
-    return {
-      token: a.quoteToken,
-      amount: String(f.executorFeeQuoteAmount ?? "0"),
-      tokenSymbol: "QUOTE",
-      decimals: 18,
-    };
-  },
+  return {
+    token: a.usdc,
+    amount: String(a.executorFeeAmount ?? "0"),
+    tokenSymbol: "USDC",
+    decimals: 6,
+  };
+},
 
   verify({ authorization, proof }) {
     const a = authorization.payload.authorization;
@@ -218,19 +215,25 @@ export const evmSpotAdapter: NamespaceAdapter = {
     };
   },
 
-  reward(graph: any) {
-    const fill = graph.fill ?? graph.proof;
-    const auth = graph.authorization;
-    const a = auth?.payload?.authorization ?? {};
-    const f = fill?.payload?.fill ?? fill?.payload ?? {};
+reward(graph: any) {
+  const fill = graph.fill;
+  const makerAuth = graph.makerAuthorization;
+  const takerAuth = graph.takerAuthorization;
 
-    return {
-      token: a.quoteToken,
-      amount: String(f.executorFeeQuoteAmount ?? "0"),
-      tokenSymbol: "QUOTE",
-      decimals: 18,
-    };
-  },
+  const a =
+    makerAuth?.payload?.authorization ??
+    takerAuth?.payload?.authorization ??
+    {};
+
+  const f = fill?.payload?.fill ?? {};
+
+  return {
+    token: a.quoteToken,
+    amount: String(f.executorFeeQuoteAmount ?? "0"),
+    tokenSymbol: "QUOTE",
+    decimals: 18,
+  };
+},
 
   verify({ authorization, proof }: any) {
     if (!authorization?.objectHash) throw new Error("MISSING_AUTHORIZATION");
