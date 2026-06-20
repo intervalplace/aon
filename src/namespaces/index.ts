@@ -96,13 +96,16 @@ export const csdUsdcAdapter: NamespaceAdapter = {
   },
 
   reward(graph: any) {
-    const a = graph.authorization?.payload?.authorization ?? {};
+    const fill = graph.fill;
+    const makerAuth = graph.makerAuthorization;
+    const a = makerAuth?.payload?.authorization ?? {};
+    const f = fill?.payload?.fill ?? {};
 
     return {
-      token: a.usdc,
-      amount: String(a.executorFeeAmount ?? "0"),
-      tokenSymbol: "USDC",
-      decimals: 6,
+      token: a.quoteToken,
+      amount: String(f.executorFeeQuoteAmount ?? "0"),
+      tokenSymbol: "QUOTE",
+      decimals: 18,
     };
   },
 
@@ -240,7 +243,9 @@ export const evmSpotAdapter: NamespaceAdapter = {
     };
   },
 
-  async execute({ authorization, reserve, proof, mode }: any) {
+  async execute(graph: any) {
+    const mode = graph.mode;
+
     if (mode === "off") {
       return { executed: false, mode, executionTx: null, result: "verified_only" };
     }
@@ -249,17 +254,13 @@ export const evmSpotAdapter: NamespaceAdapter = {
       return {
         executed: true,
         mode,
-        executionTx: `simulated:aon:evm-spot:${proof.objectHash}`,
+        executionTx: `simulated:aon:evm-spot:${graph.fill?.objectHash}`,
         result: "simulated_evm_spot_settlement",
       };
     }
 
     if (mode === "contract") {
-      return await executeEvmSpotOnEvm({
-        authorization,
-        order: reserve,
-        fill: proof,
-      });
+      return await executeEvmSpotOnEvm({ graph });
     }
 
     throw new Error("UNKNOWN_EXECUTOR_MODE");
