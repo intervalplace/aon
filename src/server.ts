@@ -965,6 +965,165 @@ app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
   }
 });
 
+app.post("/v1/orders/evm-spot/from-signed-order", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    if (!body.authorizationHash) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_AUTHORIZATION_HASH" } });
+    }
+
+    if (!body.order) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_ORDER" } });
+    }
+
+    if (!body.signature) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_SIGNATURE" } });
+    }
+
+    const authorizationHash = String(body.authorizationHash).toLowerCase();
+    const auth = getObject(authorizationHash);
+
+    if (!auth) {
+      return reply.code(404).send({ ok: false, error: { code: "AUTHORIZATION_OBJECT_NOT_FOUND" } });
+    }
+
+    if (auth.namespace !== "aon:evm-spot") {
+      return reply.code(400).send({ ok: false, error: { code: "INVALID_AUTHORIZATION_NAMESPACE" } });
+    }
+
+    const order = {
+      trader: getAddress(body.order.trader),
+      marketId: requireHex(body.order.marketId, "INVALID_MARKET_ID"),
+      side: Number(body.order.side),
+      price: String(body.order.price),
+      baseAmount: String(body.order.baseAmount),
+      orderNonce: requireHex(body.order.orderNonce, "INVALID_ORDER_NONCE"),
+      sessionAuthHash: requireHex(body.order.sessionAuthHash, "INVALID_SESSION_AUTH_HASH"),
+      validAfter: String(body.order.validAfter),
+      validBefore: String(body.order.validBefore),
+    };
+
+    if (order.sessionAuthHash.toLowerCase() !== authorizationHash) {
+      return reply.code(400).send({ ok: false, error: { code: "ORDER_AUTH_HASH_MISMATCH" } });
+    }
+
+    const signer = getAddress(body.signer ?? order.trader);
+
+    if (signer.toLowerCase() !== order.trader.toLowerCase()) {
+      return reply.code(400).send({ ok: false, error: { code: "SIGNER_TRADER_MISMATCH" } });
+    }
+
+    const obj: AonObject & { signature: any } = {
+      objectType: "order",
+      schemaVersion: "1",
+      namespace: "aon:evm-spot",
+      createdAt: body.createdAt ?? nowMs(),
+      creator: signer,
+      references: [authorizationHash],
+      payload: {
+        orderType: "evm_spot_order",
+        order,
+        summary: body.summary ?? null,
+      },
+      signature: {
+        scheme: "eip712",
+        signer,
+        domain: body.domain,
+        types: body.types,
+        primaryType: body.primaryType ?? "SignedOrder",
+        message: order,
+        signature: body.signature,
+      },
+    } as any;
+
+    const saved = await putObject(obj);
+    await announceObject(saved);
+
+    return { ok: true, objectHash: saved.objectHash, object: saved };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "EVM_SPOT_ORDER_REJECTED" },
+    });
+  }
+});
+
+app.post("/v1/fills/evm-spot", async (req, reply) => {
+  try {
+    const body = req.body as any;
+
+    for (const k of ["makerAuthorizationHash", "takerAuthorizationHash", "makerOrderHash", "takerOrderHash"]) {
+      if (!body[k]) {
+        return reply.code(400).send({ ok: false, error: { code: `MISSING_${k.toUpperCase()}` } });
+      }
+    }
+
+    if (!body.fill) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_FILL" } });
+    }
+
+    const makerAuthorizationHash = String(body.makerAuthorizationHash).toLowerCase();
+    const takerAuthorizationHash = String(body.takerAuthorizationHash).toLowerCase();
+    const makerOrderHash = String(body.makerOrderHash).toLowerCase();
+    const takerOrderHash = String(body.takerOrderHash).toLowerCase();
+
+    const makerAuth = getObject(makerAuthorizationHash);
+    const takerAuth = getObject(takerAuthorizationHash);
+    const makerOrder = getObject(makerOrderHash);
+    const takerOrder = getObject(takerOrderHash);
+
+    if (!makerAuth || !takerAuth) {
+      return reply.code(404).send({ ok: false, error: { code: "AUTHORIZATION_OBJECT_NOT_FOUND" } });
+    }
+
+    if (!makerOrder || !takerOrder) {
+      return reply.code(404).send({ ok: false, error: { code: "ORDER_OBJECT_NOT_FOUND" } });
+    }
+
+    const fill = {
+      makerOrderHash: requireHex(body.fill.makerOrderHash ?? makerOrderHash, "INVALID_MAKER_ORDER_HASH"),
+      takerOrderHash: requireHex(body.fill.takerOrderHash ?? takerOrderHash, "INVALID_TAKER_ORDER_HASH"),
+      makerAuthHash: requireHex(body.fill.makerAuthHash ?? makerAuthorizationHash, "INVALID_MAKER_AUTH_HASH"),
+      takerAuthHash: requireHex(body.fill.takerAuthHash ?? takerAuthorizationHash, "INVALID_TAKER_AUTH_HASH"),
+      price: String(body.fill.price),
+      baseAmount: String(body.fill.baseAmount),
+      quoteAmount: String(body.fill.quoteAmount),
+      executorFeeQuoteAmount: String(body.fill.executorFeeQuoteAmount ?? "0"),
+      fillNonce: requireHex(body.fill.fillNonce, "INVALID_FILL_NONCE"),
+      settlementContract: body.fill.settlementContract,
+    };
+
+    const obj: AonObject = {
+      objectType: "fill",
+      schemaVersion: "1",
+      namespace: "aon:evm-spot",
+      createdAt: body.createdAt ?? nowMs(),
+      creator: body.creator ?? "aon-matcher-v0",
+      references: [
+        makerAuthorizationHash,
+        takerAuthorizationHash,
+        makerOrderHash,
+        takerOrderHash,
+      ],
+      payload: {
+        fillType: "evm_spot_fill",
+        fill,
+        summary: body.summary ?? null,
+      },
+    };
+
+    const saved = await putObject(obj);
+    await announceObject(saved);
+
+    return { ok: true, objectHash: saved.objectHash, object: saved };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "EVM_SPOT_FILL_REJECTED" },
+    });
+  }
+});
 
 app.get("/v1/executable/next", async (req) => {
   const q = req.query as any;
@@ -1108,10 +1267,10 @@ app.post("/v1/executor/consume-evm-spot", async (req, reply) => {
 
     const adapter = getNamespaceAdapter("aon:evm-spot");
 
-    const action = await adapter.execute({
-      ...graph,
-      mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
-    });
+const action = await adapter.execute({
+  ...graph,
+  mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
+});
 
     const refs = [
       graph.makerAuthorization.objectHash,
