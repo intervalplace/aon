@@ -3,8 +3,12 @@ import { keccak256, toBytes } from "viem";
 export type AonObjectType =
   | "authorization"
   | "condition"
+  | "order"
+  | "fill"
   | "proof"
-  | "receipt";
+  | "receipt"
+  | "revocation"
+  | "namespace_manifest";
 
 export type AonObject = {
   objectType: AonObjectType;
