@@ -9,37 +9,17 @@ function asBigInt(x: any) {
   return BigInt(String(x));
 }
 
+function payload(obj: any) {
+  return obj.payload ?? {};
+}
+
 function fillData(fill: any) {
   return fill.payload?.fill ?? fill.payload ?? {};
 }
 
-function fillNonce(fill: any) {
-  return fillData(fill).fillNonce ?? fillData(fill).nonce ?? fill.objectHash;
-}
-
-function makerOrderHash(fill: any) {
-  return fillData(fill).makerOrderHash?.toLowerCase?.();
-}
-
-function takerOrderHash(fill: any) {
-  return fillData(fill).takerOrderHash?.toLowerCase?.();
-}
-
-function fillBaseAmount(fill: any) {
-  return asBigInt(fillData(fill).baseAmount);
-}
-
-function makerOrderBaseAmount(fill: any) {
-  return asBigInt(fill.payload?.makerOrder?.baseAmount ?? fillData(fill).makerOrderBaseAmount);
-}
-
-function takerOrderBaseAmount(fill: any) {
-  return asBigInt(fill.payload?.takerOrder?.baseAmount ?? fillData(fill).takerOrderBaseAmount);
-}
-
 function receiptConsumesFill(receipt: any, fill: any) {
   const fillHash = fill.objectHash?.toLowerCase?.();
-  const nonce = fillNonce(fill)?.toLowerCase?.();
+  const nonce = fillData(fill).fillNonce?.toLowerCase?.();
 
   return (
     (fillHash && refsLower(receipt).includes(fillHash)) ||
@@ -52,24 +32,35 @@ function isFillReceipted(receipts: any[], fill: any) {
   return receipts.some((r) => receiptConsumesFill(r, fill));
 }
 
+function orderHash(order: any) {
+  return order.objectHash?.toLowerCase?.();
+}
+
+function fillReferencesOrder(fill: any, order: any) {
+  const refs = refsLower(fill);
+  const h = orderHash(order);
+
+  if (!h) return false;
+
+  return (
+    refs.includes(h) ||
+    fillData(fill).makerOrderHash?.toLowerCase?.() === h ||
+    fillData(fill).takerOrderHash?.toLowerCase?.() === h
+  );
+}
+
 function sumReceiptedBaseForOrder(args: {
   fills: any[];
   receipts: any[];
-  orderHash: string | undefined;
-  side: "maker" | "taker";
+  order: any;
 }) {
-  if (!args.orderHash) return 0n;
-
   let total = 0n;
 
   for (const fill of args.fills) {
-    const orderHash =
-      args.side === "maker" ? makerOrderHash(fill) : takerOrderHash(fill);
-
-    if (orderHash !== args.orderHash) continue;
+    if (!fillReferencesOrder(fill, args.order)) continue;
     if (!isFillReceipted(args.receipts, fill)) continue;
 
-    total += fillBaseAmount(fill);
+    total += asBigInt(fillData(fill).baseAmount);
   }
 
   return total;
@@ -79,11 +70,25 @@ export function findExecutableEvmSpotGraphs(
   objects: AonObject[],
   opts?: { includeCompleted?: boolean }
 ) {
+  const authorizations = objects.filter(
+    (o: any) =>
+      o.namespace === "aon:evm-spot" &&
+      o.objectType === "authorization" &&
+      o.payload?.authorizationType === "evm_spot_session"
+  );
+
+  const orders = objects.filter(
+    (o: any) =>
+      o.namespace === "aon:evm-spot" &&
+      o.objectType === "order" &&
+      o.payload?.orderType === "evm_spot_order"
+  );
+
   const fills = objects.filter(
     (o: any) =>
       o.namespace === "aon:evm-spot" &&
-      o.objectType === "proof" &&
-      o.payload?.proofType === "evm_spot_fill"
+      o.objectType === "fill" &&
+      o.payload?.fillType === "evm_spot_fill"
   );
 
   const receipts = objects.filter(
@@ -98,41 +103,46 @@ export function findExecutableEvmSpotGraphs(
     if (!fill.objectHash) continue;
 
     const refs = refsLower(fill);
-    if (refs.length < 2) continue;
+    if (refs.length < 4) continue;
 
-    const makerAuth = objects.find(
+    const makerAuth = authorizations.find(
       (o: any) => o.objectHash?.toLowerCase() === refs[0]
     );
 
-    const takerAuth = objects.find(
+    const takerAuth = authorizations.find(
       (o: any) => o.objectHash?.toLowerCase() === refs[1]
     );
 
-    if (!makerAuth || !takerAuth) continue;
+    const makerOrder = orders.find(
+      (o: any) => o.objectHash?.toLowerCase() === refs[2]
+    );
+
+    const takerOrder = orders.find(
+      (o: any) => o.objectHash?.toLowerCase() === refs[3]
+    );
+
+    if (!makerAuth || !takerAuth || !makerOrder || !takerOrder) continue;
 
     const receipt = receipts.find((r: any) => receiptConsumesFill(r, fill));
 
-    const currentFillBase = fillBaseAmount(fill);
+    const f = fillData(fill);
 
-    const mOrderHash = makerOrderHash(fill);
-    const tOrderHash = takerOrderHash(fill);
+    const currentFillBase = asBigInt(f.baseAmount);
 
     const makerAlreadyFilled = sumReceiptedBaseForOrder({
       fills,
       receipts,
-      orderHash: mOrderHash,
-      side: "maker",
+      order: makerOrder,
     });
 
     const takerAlreadyFilled = sumReceiptedBaseForOrder({
       fills,
       receipts,
-      orderHash: tOrderHash,
-      side: "taker",
+      order: takerOrder,
     });
 
-    const makerTotal = makerOrderBaseAmount(fill);
-    const takerTotal = takerOrderBaseAmount(fill);
+    const makerTotal = asBigInt(payload(makerOrder).order?.baseAmount);
+    const takerTotal = asBigInt(payload(takerOrder).order?.baseAmount);
 
     const makerRemaining =
       makerTotal > makerAlreadyFilled ? makerTotal - makerAlreadyFilled : 0n;
@@ -159,12 +169,14 @@ export function findExecutableEvmSpotGraphs(
       namespace: "aon:evm-spot",
       makerAuthorization: makerAuth,
       takerAuthorization: takerAuth,
+      makerOrder,
+      takerOrder,
       fill,
       receipt: receipt ?? null,
       partialFill: {
         fillBaseAmount: currentFillBase.toString(),
-        makerOrderHash: mOrderHash ?? null,
-        takerOrderHash: tOrderHash ?? null,
+        makerOrderHash: makerOrder.objectHash,
+        takerOrderHash: takerOrder.objectHash,
         makerOrderBaseAmount: makerTotal.toString(),
         takerOrderBaseAmount: takerTotal.toString(),
         makerAlreadyFilled: makerAlreadyFilled.toString(),
