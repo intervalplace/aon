@@ -161,9 +161,7 @@ function fillTuple(f: any) {
 }
 
 export async function executeEvmSpotOnEvm(args: {
-  authorization: any;
-  order: any;
-  fill: any;
+  graph: any;
 }) {
   const rpcUrl = requireEnv("AON_EVM_RPC_URL");
   const privateKey = asHex(requireEnv("AON_EXECUTOR_PRIVATE_KEY"), "INVALID_EXECUTOR_PRIVATE_KEY");
@@ -181,24 +179,24 @@ export async function executeEvmSpotOnEvm(args: {
     transport: http(rpcUrl),
   });
 
-  const payload = args.fill.payload;
+const graph = args.graph;
 
-  const makerAuth = payload.makerAuth;
-  const takerAuth = payload.takerAuth;
-  const makerOrder = payload.makerOrder;
-  const takerOrder = payload.takerOrder;
-  const fill = payload.fill;
+const makerAuth = graph.makerAuthorization.payload.authorization;
+const takerAuth = graph.takerAuthorization.payload.authorization;
+const makerOrder = graph.makerOrder.payload.order;
+const takerOrder = graph.takerOrder.payload.order;
+const fill = graph.fill.payload.fill;
 
-  const makerAuthSig = payload.makerAuthSig;
-  const takerAuthSig = payload.takerAuthSig;
-  const makerOrderSig = payload.makerOrderSig;
-  const takerOrderSig = payload.takerOrderSig;
+const makerAuthSig = graph.makerAuthorization.signature?.signature;
+const takerAuthSig = graph.takerAuthorization.signature?.signature;
+const makerOrderSig = graph.makerOrder.signature?.signature;
+const takerOrderSig = graph.takerOrder.signature?.signature;
 
-  const contract = getAddress(
-    payload.settlementContract ??
-      makerAuth.settlementContract ??
-      requireEnv("AON_EVM_SPOT_SETTLEMENT_CONTRACT")
-  );
+const contract = getAddress(
+  fill.settlementContract ??
+    makerAuth.settlementContract ??
+    requireEnv("AON_EVM_SPOT_SETTLEMENT_CONTRACT")
+);
 
   const tx = await client.writeContract({
     address: contract,
