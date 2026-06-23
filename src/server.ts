@@ -244,104 +244,64 @@ function summarizeAuth(auth: any) {
   return adapter.summarizeAuthorization(auth);
 }
 
-async function executeGraphAction(args: {
-  authorization: any;
-  reserve: any;
-  proof: any;
-  mode?: string;
-}) {
-  const mode = args.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate";
-  const adapter = getNamespaceAdapter(args.authorization.namespace);
-
-  return await adapter.execute({
-    authorization: args.authorization,
-    reserve: args.reserve,
-    proof: args.proof,
-    mode,
-  });
-}
-
-async function consumeExecutableGraph(args: {
-  authorizationHash: string;
-  reserveHash: string;
-  proofHash: string;
-  creator?: string;
-  executionTx?: string | null;
-  summary?: string | null;
-  mode?: string;
-}) {
-  const authorizationHash = lowerHash(args.authorizationHash, "INVALID_AUTHORIZATION_HASH");
-  const reserveHash = lowerHash(args.reserveHash, "INVALID_RESERVE_HASH");
-  const proofHash = lowerHash(args.proofHash, "INVALID_PROOF_HASH");
-
-  const auth = getObject(authorizationHash);
-  const reserve = getObject(reserveHash);
-  const proof = getObject(proofHash);
-
-  if (!auth || !reserve || !proof) throw new Error("OBJECT_NOT_FOUND");
-
-  if (auth.objectType !== "authorization") throw new Error("INVALID_AUTHORIZATION_OBJECT");
-  if (reserve.objectType !== "reserve") throw new Error("INVALID_RESERVE_OBJECT");
-  if (proof.objectType !== "proof") throw new Error("INVALID_PROOF_OBJECT");
-
-  if (!objectRefsLower(reserve).includes(authorizationHash)) {
-    throw new Error("RESERVE_DOES_NOT_REFERENCE_AUTHORIZATION");
+async function consumeGraph(
+  graph: any,
+  args?: {
+    creator?: string;
+    summary?: string | null;
+    mode?: string;
   }
+) {
 
-  if (!objectRefsLower(proof).includes(reserveHash)) {
-    throw new Error("PROOF_DOES_NOT_REFERENCE_RESERVE");
-  }
+  const namespace =
+    graph.authorization?.namespace ??
+    graph.makerAuthorization?.namespace ??
+    graph.namespace;
 
-  const existingReceipts = listObjects({
-    objectType: "receipt",
-    namespace: auth.namespace,
-  });
+  const adapter = getNamespaceAdapter(namespace);
 
-  const reserveAlreadyReceipted = existingReceipts.some((r: any) =>
-    objectRefsLower(r).includes(reserveHash)
-  );
+  const verification =
+    adapter.verify(graph);
 
-  if (reserveAlreadyReceipted) {
-    throw new Error("RESERVE_ALREADY_CONSUMED");
-  }
+  const action =
+    await adapter.execute({
+      ...graph,
+      mode:
+        args?.mode ??
+        process.env.AON_EXECUTOR_MODE ??
+        "simulate",
+    });
 
-  const proofTxid = proof.payload?.txid ?? proof.payload?.proof?.txid;
+  const refs =
+    [
+      graph.authorization?.objectHash,
+      graph.reserve?.objectHash,
+      graph.proof?.objectHash,
 
-  const txidAlreadyReceipted = existingReceipts.some((r: any) =>
-    r.payload?.verification?.txid?.toLowerCase?.() === proofTxid?.toLowerCase?.()
-  );
-
-  if (proofTxid && txidAlreadyReceipted) {
-    throw new Error("PROOF_TXID_ALREADY_CONSUMED");
-  }
-
-const adapter = getNamespaceAdapter(auth.namespace);
-
-const verification = adapter.verify({
-  authorization: auth,
-  reserve,
-  proof,
-});
-
-  const action = await executeGraphAction({
-    authorization: auth,
-    reserve,
-    proof,
-    mode: args.mode,
-  });
+      graph.makerAuthorization?.objectHash,
+      graph.takerAuthorization?.objectHash,
+      graph.makerOrder?.objectHash,
+      graph.takerOrder?.objectHash,
+      graph.fill?.objectHash,
+    ].filter(Boolean);
 
   const receipt: AonObject = {
     objectType: "receipt",
     schemaVersion: "1",
-    namespace: auth.namespace,
+    namespace,
     createdAt: Date.now(),
-    creator: args.creator ?? "aon-executor-v0",
-    references: [authorizationHash, reserveHash, proofHash],
+    creator:
+      args?.creator ??
+      "aon-executor-v0",
+    references: refs,
     payload: {
-      receiptType: "authorized_state_transition_completed",
+      receiptType:
+        "authorized_state_transition_completed",
       result: action.result,
-      executionTx: args.executionTx ?? action.executionTx ?? null,
-      summary: args.summary ?? null,
+      executionTx:
+        action.executionTx ?? null,
+      summary:
+        args?.summary ?? null,
       verification,
       executor: {
         mode: action.mode,
@@ -350,15 +310,15 @@ const verification = adapter.verify({
     },
   };
 
-  const saved = await putObject(receipt);
+  const saved =
+    await putObject(receipt);
+
   await announceObject(saved);
 
   return {
     receipt: saved,
     verification,
-    authorization: auth,
-    reserve,
-    proof,
+    action,
   };
 }
 
@@ -1150,73 +1110,81 @@ app.get("/v1/executable/next", async (req) => {
 
 app.post("/v1/executor/consume", async (req, reply) => {
   try {
-    const body = req.body as any;
+const namespace =
+  body.namespace ?? "aon:csd-usdc";
 
-    let authorizationHash = body.authorizationHash;
-    let reserveHash = body.reserveHash;
-    let proofHash = body.proofHash;
+const executable =
+  findExecutableByNamespace(
+    namespace,
+    false
+  );
 
-    if (body.auto === true || (!authorizationHash && !reserveHash && !proofHash)) {
+const graph =
+  body.auto === true
+    ? executable.find(
+        (x: any) =>
+          x.status === "executable"
+      )
+    : executable.find(
+        (x: any) => {
 
-const executable = findExecutableByNamespace(
-  body.namespace ?? "aon:csd-usdc",
-  false
-);
+          if (
+            namespace ===
+            "aon:evm-spot"
+          ) {
+            return (
+              x.fill?.objectHash ===
+              body.fillHash
+            );
+          }
 
-const next = executable.find((x: any) => x.status === "executable" && isGraphConsumable(x));
+          return (
+            x.proof?.objectHash ===
+            body.proofHash
+          );
+        }
+      );
 
-      if (!next) {
-        return reply.code(404).send({
-          ok: false,
-          error: { code: "NO_EXECUTABLE_GRAPH_AVAILABLE" },
-        });
-      }
-
-if (body.namespace === "aon:evm-spot") {
-
-  return reply.code(400).send({
-
+if (!graph) {
+  return reply.code(404).send({
     ok: false,
-
-    error: { code: "EVM_SPOT_CONSUME_NOT_WIRED_HERE" },
-
+    error: {
+      code:
+        "NO_EXECUTABLE_GRAPH_AVAILABLE",
+    },
   });
-
 }
 
+const result =
+  await consumeGraph(
+    graph,
+    {
+      creator:
+        body.creator ??
+        "aon-executor-v0",
 
-      authorizationHash = next.authorization.objectHash;
-      reserveHash = next.reserve.objectHash;
-      proofHash = next.proof.objectHash;
+      summary:
+        body.summary ??
+        "Consumed by executor",
+
+      mode:
+        body.mode ??
+        process.env
+          .AON_EXECUTOR_MODE ??
+        "simulate",
     }
+  );
 
-    if (!authorizationHash || !reserveHash || !proofHash) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_HASHES" },
-      });
-    }
-
-    const result = await consumeExecutableGraph({
-      authorizationHash,
-      reserveHash,
-      proofHash,
-      creator: body.creator ?? "aon-executor-v0",
-      executionTx: body.executionTx ?? null,
-      summary: body.summary ?? "Consumed by executor endpoint",
-mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
-    });
-
-    return {
-      ok: true,
-      status: "consumed",
-      authorizationHash,
-      reserveHash,
-      proofHash,
-      objectHash: result.receipt.objectHash,
-      receipt: result.receipt,
-      verification: result.verification,
-    };
+return {
+  ok: true,
+  status: "consumed",
+  objectHash:
+    result.receipt.objectHash,
+  receipt:
+    result.receipt,
+  verification:
+    result.verification,
+};
   } catch (err: any) {
     const code = err?.message ?? "EXECUTOR_CONSUME_FAILED";
     const status =
@@ -1233,90 +1201,6 @@ mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
   }
 });
 
-app.post("/v1/executor/consume-evm-spot", async (req, reply) => {
-  try {
-    const body = req.body as any;
-
-    const executable = findExecutableEvmSpotGraphs(listObjects(), {
-      includeCompleted: false,
-    })
-      .filter((x: any) => x.status === "executable")
-      .filter((x: any) => {
-        const makerAuth = x.makerAuthorization;
-        const takerAuth = x.takerAuthorization;
-
-        return (
-          makerAuth?.objectHash &&
-          takerAuth?.objectHash &&
-          !isLocallyRevoked(makerAuth.objectHash) &&
-          !isLocallyRevoked(takerAuth.objectHash)
-        );
-      });
-
-    const graph =
-      body.auto === true
-        ? executable[0]
-        : executable.find((x: any) => x.fill?.objectHash === body.fillHash);
-
-    if (!graph) {
-      return reply.code(404).send({
-        ok: false,
-        error: { code: "NO_EVM_SPOT_EXECUTABLE_GRAPH_AVAILABLE" },
-      });
-    }
-
-    const adapter = getNamespaceAdapter("aon:evm-spot");
-
-const action = await adapter.execute({
-  ...graph,
-  mode: body.mode ?? process.env.AON_EXECUTOR_MODE ?? "simulate",
-});
-
-    const refs = [
-      graph.makerAuthorization.objectHash,
-      graph.takerAuthorization.objectHash,
-      graph.makerOrder.objectHash,
-      graph.takerOrder.objectHash,
-      graph.fill.objectHash,
-    ];
-
-    const receipt: AonObject = {
-      objectType: "receipt",
-      schemaVersion: "1",
-      namespace: "aon:evm-spot",
-      createdAt: Date.now(),
-      creator: body.creator ?? "aon-evm-spot-executor-v0",
-      references: refs,
-      payload: {
-        receiptType: "evm_spot_fill_settled",
-        result: action.result,
-        executionTx: action.executionTx ?? null,
-        summary: body.summary ?? "EVM spot fill consumed by executor",
-        executor: {
-          mode: action.mode,
-          executed: action.executed,
-        },
-        fill: graph.fill.payload,
-      },
-    };
-
-    const saved = await putObject(receipt);
-    await announceObject(saved);
-
-    return {
-      ok: true,
-      status: "consumed",
-      objectHash: saved.objectHash,
-      receipt: saved,
-      action,
-    };
-  } catch (err: any) {
-    return reply.code(400).send({
-      ok: false,
-      error: { code: err?.message ?? "EVM_SPOT_CONSUME_FAILED" },
-    });
-  }
-});
 
 
 app.post("/v1/reserves/csd-usdc/lock", async (req, reply) => {
