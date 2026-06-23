@@ -11,7 +11,6 @@ import { findExecutableGraphs } from "./executable.js";
 import type { AonObject } from "./object.js";
 import { findExecutableEvmSpotGraphs } from "./executableEvmSpot.js";
 import { makeCsdPaymentProofObject } from "./proofs/csdFromTxid.js";
-import { verifyCsdPaymentProof } from "./verifiers/csd.js";
 import {
   announceObject,
   dialPeer,
@@ -22,9 +21,8 @@ getPubsubInfo,
 exchangePeersWith,
 } from "./p2p.js";
 import {
-  executeCsdUsdcSettlementOnEvm,
   lockCsdUsdcOnEvm,
-refundExpiredCsdUsdcLockOnEvm,
+  refundExpiredCsdUsdcLockOnEvm,
 } from "./executors/evmCsdUsdcSettlement.js";
 import {
   getNamespaceAdapter,
@@ -565,47 +563,6 @@ app.get("/v1/receipts/by-txid/:txid", async (req) => {
 });
 
 
-app.post("/v1/receipts/from-executable", async (req, reply) => {
-  try {
-    const body = req.body as any;
-
-    if (!body.authorizationHash || !body.reserveHash || !body.proofHash) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_HASHES" },
-      });
-    }
-
-    const result = await consumeExecutableGraph({
-      authorizationHash: body.authorizationHash,
-      reserveHash: body.reserveHash,
-      proofHash: body.proofHash,
-      creator: body.creator ?? "aon-node-v0",
-      executionTx: body.executionTx ?? null,
-      summary: body.summary ?? null,
-    });
-
-    return {
-      ok: true,
-      objectHash: result.receipt.objectHash,
-      receipt: result.receipt,
-    };
-  } catch (err: any) {
-    const code = err?.message ?? "RECEIPT_CREATION_FAILED";
-    const status =
-      code === "RESERVE_ALREADY_CONSUMED" || code === "PROOF_TXID_ALREADY_CONSUMED"
-        ? 409
-        : code === "OBJECT_NOT_FOUND"
-          ? 404
-          : 400;
-
-    return reply.code(status).send({
-      ok: false,
-      error: { code },
-    });
-  }
-});
-
 app.get("/v1/receipts/canonical/by-reserve/:reserveHash", async (req) => {
   const reserveHash = ((req.params as any).reserveHash as string).toLowerCase();
 
@@ -1110,8 +1067,10 @@ app.get("/v1/executable/next", async (req) => {
 
 app.post("/v1/executor/consume", async (req, reply) => {
   try {
-const namespace =
-  body.namespace ?? "aon:csd-usdc";
+    const body = req.body as any;
+
+    const namespace =
+      body.namespace ?? "aon:csd-usdc";
 
 const executable =
   findExecutableByNamespace(
