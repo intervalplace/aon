@@ -1,3 +1,6 @@
+import { privateKeyToAccount } from "viem/accounts";
+
+
 const AON = process.env.AON_URL ?? "http://127.0.0.1:8787";
 
 async function post(path, body) {
@@ -17,13 +20,19 @@ async function get(path) {
   return await res.json();
 }
 
-function sig(byte = "11") {
-  return `0x${byte.repeat(65)}`;
-}
 
 function hex32(byte) {
   return `0x${byte.repeat(32)}`;
 }
+
+const maker = privateKeyToAccount(
+  "0x4019e96887def59e26a0929378394432f1b3986f42029269720f249943bf5fb5"
+);
+
+const taker = privateKeyToAccount(
+  "0x4019e96887def59e26a0929378394432f1b3986f42029269720f249943bf5fb5"
+);
+
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -43,7 +52,7 @@ const domain = {
 };
 
 const makerAuth = {
-  grantor: "0x0000000000000000000000000000000000000001",
+grantor: maker.address,
   settlementContract,
   baseToken,
   quoteToken,
@@ -60,7 +69,7 @@ const makerAuth = {
 };
 
 const takerAuth = {
-  grantor: "0x0000000000000000000000000000000000000002",
+grantor: taker.address,
   settlementContract,
   baseToken,
   quoteToken,
@@ -76,12 +85,41 @@ const takerAuth = {
   authNonce: hex32("cc"),
 };
 
-const makerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
-  authorization: makerAuth,
-  signature: sig("11"),
-  signer: makerAuth.grantor,
-  domain,
-});
+const makerAuthSignature =
+  await maker.signTypedData({
+    domain,
+    types: {
+      TradingSessionAuthorization: [
+        { name: "grantor", type: "address" },
+        { name: "settlementContract", type: "address" },
+        { name: "baseToken", type: "address" },
+        { name: "quoteToken", type: "address" },
+        { name: "marketId", type: "bytes32" },
+        { name: "sideMask", type: "uint8" },
+        { name: "maxBaseExposure", type: "uint256" },
+        { name: "maxQuoteExposure", type: "uint256" },
+        { name: "maxExecutorFeeQuote", type: "uint256" },
+        { name: "minPrice", type: "uint256" },
+        { name: "maxPrice", type: "uint256" },
+        { name: "validAfter", type: "uint64" },
+        { name: "validBefore", type: "uint64" },
+        { name: "authNonce", type: "bytes32" },
+      ],
+    },
+    primaryType: "TradingSessionAuthorization",
+    message: makerAuth,
+  });
+
+const makerAuthObj =
+  await post(
+    "/v1/authorizations/evm-spot/from-signed-auth",
+    {
+      authorization: makerAuth,
+      signature: makerAuthSignature,
+      signer: maker.address,
+      domain,
+    }
+  );
 
 const takerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
   authorization: takerAuth,
