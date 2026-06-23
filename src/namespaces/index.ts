@@ -19,8 +19,8 @@ export type NamespaceAdapter = {
   types(): any;
   summarizeAuthorization(auth: AonObject): any;
   reward(graph: any): any;
-  verify(graph: { authorization: any; reserve: any; proof: any }): any;
-  execute(graph: { authorization: any; reserve: any; proof: any; mode?: string }): Promise<any>;
+  verify(graph: any): any;
+  execute(graph: any): Promise<any>;
   lock(args: { authorization: any }): Promise<any>;
 };
 
@@ -106,20 +106,33 @@ reward(graph: any) {
   };
 },
 
-  verify({ authorization, proof }) {
-    const a = authorization.payload.authorization;
+verify(graph: any) {
 
-    return verifyCsdPaymentProof({
-      proof: proof.payload.proof,
-      expectedRecipientScriptPubKey: a.sellerCsdScriptHash,
-      expectedAmount: BigInt(a.csdAmount),
-      minConfirmations: Number(a.minConfirmations ?? 1),
-      expectedGenesisHash: a.csdGenesisHash,
-    });
-  },
+  const authorization = graph.authorization;
+  const proof = graph.proof;
 
-  async execute({ authorization, reserve, proof, mode }) {
-    if (mode === "off") {
+  const a = authorization.payload.authorization;
+
+  return verifyCsdPaymentProof({
+    proof: proof.payload.proof,
+    expectedRecipientScriptPubKey: a.sellerCsdScriptHash,
+    expectedAmount: BigInt(a.csdAmount),
+    minConfirmations: Number(a.minConfirmations ?? 1),
+    expectedGenesisHash: a.csdGenesisHash,
+  });
+},
+
+async execute(graph: any) {
+
+  const authorization = graph.authorization;
+
+  const reserve = graph.reserve;
+
+  const proof = graph.proof;
+
+  const mode = graph.mode;
+  
+  if (mode === "off") {
       return { executed: false, mode, executionTx: null, result: "verified_only" };
     }
 
@@ -235,16 +248,27 @@ reward(graph: any) {
   };
 },
 
-  verify({ authorization, proof }: any) {
-    if (!authorization?.objectHash) throw new Error("MISSING_AUTHORIZATION");
-    if (!proof?.objectHash) throw new Error("MISSING_FILL_OBJECT");
+verify(graph: any) {
 
-    return {
-      ok: true,
-      proofType: "evm_spot_fill",
-      reason: "EVM_SPOT_VERIFIED_ON_CHAIN_DURING_SETTLEMENT",
-    };
-  },
+  const makerAuth = graph.makerAuthorization;
+  const takerAuth = graph.takerAuthorization;
+  const fill = graph.fill;
+
+  if (!makerAuth?.objectHash)
+    throw new Error("MISSING_MAKER_AUTH");
+
+  if (!takerAuth?.objectHash)
+    throw new Error("MISSING_TAKER_AUTH");
+
+  if (!fill?.objectHash)
+    throw new Error("MISSING_FILL");
+
+  return {
+    ok: true,
+    proofType: "evm_spot_fill",
+    reason: "EVM_SPOT_VERIFIED_ON_CHAIN_DURING_SETTLEMENT",
+  };
+},
 
   async execute(graph: any) {
     const mode = graph.mode;
