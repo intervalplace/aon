@@ -877,11 +877,22 @@ app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
     const signer = getAddress(body.signer ?? authorization.buyer);
 
     if (signer.toLowerCase() !== authorization.buyer.toLowerCase()) {
+      
       return reply.code(400).send({
         ok: false,
         error: { code: "SIGNER_BUYER_MISMATCH" },
       });
     }
+
+    await requireValidTypedSignature({
+  domain: body.domain,
+  types: body.types ?? csdUsdcTypes(),
+  primaryType: body.primaryType ?? "CsdUsdcAuthorization",
+  message: authorization,
+  signature: body.signature,
+  expectedSigner: signer,
+  code: "BAD_AUTHORIZATION_SIGNATURE",
+});
 
     const validBefore = Number(authorization.validBefore);
     if (Number.isFinite(validBefore) && validBefore <= Math.floor(Date.now() / 1000)) {
@@ -913,6 +924,7 @@ app.post("/v1/authorizations/csd-usdc/from-signed-auth", async (req, reply) => {
         signature: body.signature,
       },
     } as any;
+
 
     const saved = await putObject(obj);
     await announceObject(saved);
@@ -1007,7 +1019,7 @@ app.post("/v1/orders/evm-spot/from-signed-order", async (req, reply) => {
         scheme: "eip712",
         signer,
         domain: body.domain,
-        types: body.types,
+        types: body.types ?? evmSpotOrderTypes(),
         primaryType: body.primaryType ?? "SignedOrder",
         message: order,
         signature: body.signature,
@@ -1585,17 +1597,16 @@ await requireValidTypedSignature({
         reason,
         nonce,
       },
-      signature: body.signature
-        ? {
-            scheme: body.signature.scheme ?? "eip712",
-            signer,
-            domain: body.signature.domain,
-            types: body.signature.types,
-            primaryType: body.signature.primaryType,
-            message: body.signature.message,
-            signature: body.signature.signature,
-          }
-        : undefined,
+signature: {
+  scheme: body.signature.scheme ?? "eip712",
+  signer,
+  domain: body.signature.domain,
+  types: body.signature.types ?? revocationTypes(),
+  primaryType:
+    body.signature.primaryType ?? "AonRevocation",
+  message: revocationMessage,
+  signature: body.signature.signature,
+},
     } as any;
 
     const saved = await putObject(obj);
