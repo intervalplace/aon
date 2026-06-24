@@ -32,6 +32,9 @@ export async function saveStore() {
 
 export async function putObject(input: AonObject) {
   const objectHash = assertValidObject(input);
+
+  await validateObject(finalized);
+  
   const obj = finalizeObject(input);
 
   await verifyAuthorizationObject(obj);
