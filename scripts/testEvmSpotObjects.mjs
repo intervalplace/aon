@@ -1,6 +1,5 @@
 import { privateKeyToAccount } from "viem/accounts";
 
-
 const AON = process.env.AON_URL ?? "http://127.0.0.1:8787";
 
 async function post(path, body) {
@@ -20,7 +19,6 @@ async function get(path) {
   return await res.json();
 }
 
-
 function hex32(byte) {
   return `0x${byte.repeat(32)}`;
 }
@@ -30,9 +28,8 @@ const maker = privateKeyToAccount(
 );
 
 const taker = privateKeyToAccount(
-  "0x4019e96887def59e26a0929378394432f1b3986f42029269720f249943bf5fb5"
+  "0x59c6995e998f97a5a0044976f3f0345ba5f489568411dc3b6c52f14f3e541f8f"
 );
-
 
 const now = Math.floor(Date.now() / 1000);
 
@@ -51,8 +48,41 @@ const domain = {
   verifyingContract: settlementContract,
 };
 
+const authTypes = {
+  TradingSessionAuthorization: [
+    { name: "grantor", type: "address" },
+    { name: "settlementContract", type: "address" },
+    { name: "baseToken", type: "address" },
+    { name: "quoteToken", type: "address" },
+    { name: "marketId", type: "bytes32" },
+    { name: "sideMask", type: "uint8" },
+    { name: "maxBaseExposure", type: "uint256" },
+    { name: "maxQuoteExposure", type: "uint256" },
+    { name: "maxExecutorFeeQuote", type: "uint256" },
+    { name: "minPrice", type: "uint256" },
+    { name: "maxPrice", type: "uint256" },
+    { name: "validAfter", type: "uint64" },
+    { name: "validBefore", type: "uint64" },
+    { name: "authNonce", type: "bytes32" },
+  ],
+};
+
+const orderTypes = {
+  SignedOrder: [
+    { name: "trader", type: "address" },
+    { name: "marketId", type: "bytes32" },
+    { name: "side", type: "uint8" },
+    { name: "price", type: "uint256" },
+    { name: "baseAmount", type: "uint256" },
+    { name: "orderNonce", type: "bytes32" },
+    { name: "sessionAuthHash", type: "bytes32" },
+    { name: "validAfter", type: "uint64" },
+    { name: "validBefore", type: "uint64" },
+  ],
+};
+
 const makerAuth = {
-grantor: maker.address,
+  grantor: maker.address,
   settlementContract,
   baseToken,
   quoteToken,
@@ -69,7 +99,7 @@ grantor: maker.address,
 };
 
 const takerAuth = {
-grantor: taker.address,
+  grantor: taker.address,
   settlementContract,
   baseToken,
   quoteToken,
@@ -85,51 +115,38 @@ grantor: taker.address,
   authNonce: hex32("cc"),
 };
 
-const makerAuthSignature =
-  await maker.signTypedData({
-    domain,
-    types: {
-      TradingSessionAuthorization: [
-        { name: "grantor", type: "address" },
-        { name: "settlementContract", type: "address" },
-        { name: "baseToken", type: "address" },
-        { name: "quoteToken", type: "address" },
-        { name: "marketId", type: "bytes32" },
-        { name: "sideMask", type: "uint8" },
-        { name: "maxBaseExposure", type: "uint256" },
-        { name: "maxQuoteExposure", type: "uint256" },
-        { name: "maxExecutorFeeQuote", type: "uint256" },
-        { name: "minPrice", type: "uint256" },
-        { name: "maxPrice", type: "uint256" },
-        { name: "validAfter", type: "uint64" },
-        { name: "validBefore", type: "uint64" },
-        { name: "authNonce", type: "bytes32" },
-      ],
-    },
-    primaryType: "TradingSessionAuthorization",
-    message: makerAuth,
-  });
+const makerAuthSignature = await maker.signTypedData({
+  domain,
+  types: authTypes,
+  primaryType: "TradingSessionAuthorization",
+  message: makerAuth,
+});
 
-const makerAuthObj =
-  await post(
-    "/v1/authorizations/evm-spot/from-signed-auth",
-    {
-      authorization: makerAuth,
-      signature: makerAuthSignature,
-      signer: maker.address,
-      domain,
-    }
-  );
+const takerAuthSignature = await taker.signTypedData({
+  domain,
+  types: authTypes,
+  primaryType: "TradingSessionAuthorization",
+  message: takerAuth,
+});
+
+const makerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
+  authorization: makerAuth,
+  signature: makerAuthSignature,
+  signer: maker.address,
+  domain,
+  types: authTypes,
+});
 
 const takerAuthObj = await post("/v1/authorizations/evm-spot/from-signed-auth", {
   authorization: takerAuth,
-  signature: sig("22"),
-  signer: takerAuth.grantor,
+  signature: takerAuthSignature,
+  signer: taker.address,
   domain,
+  types: authTypes,
 });
 
 const makerOrder = {
-  trader: makerAuth.grantor,
+  trader: maker.address,
   marketId,
   side: 0,
   price: "1000000000000000000",
@@ -141,7 +158,7 @@ const makerOrder = {
 };
 
 const takerOrder = {
-  trader: takerAuth.grantor,
+  trader: taker.address,
   marketId,
   side: 1,
   price: "1000000000000000000",
@@ -152,20 +169,36 @@ const takerOrder = {
   validBefore: String(now + 3600),
 };
 
+const makerOrderSignature = await maker.signTypedData({
+  domain,
+  types: orderTypes,
+  primaryType: "SignedOrder",
+  message: makerOrder,
+});
+
+const takerOrderSignature = await taker.signTypedData({
+  domain,
+  types: orderTypes,
+  primaryType: "SignedOrder",
+  message: takerOrder,
+});
+
 const makerOrderObj = await post("/v1/orders/evm-spot/from-signed-order", {
   authorizationHash: makerAuthObj.objectHash,
   order: makerOrder,
-  signature: sig("33"),
-  signer: makerOrder.trader,
+  signature: makerOrderSignature,
+  signer: maker.address,
   domain,
+  types: orderTypes,
 });
 
 const takerOrderObj = await post("/v1/orders/evm-spot/from-signed-order", {
   authorizationHash: takerAuthObj.objectHash,
   order: takerOrder,
-  signature: sig("44"),
-  signer: takerOrder.trader,
+  signature: takerOrderSignature,
+  signer: taker.address,
   domain,
+  types: orderTypes,
 });
 
 const fill1 = await post("/v1/fills/evm-spot", {
@@ -183,23 +216,16 @@ const fill1 = await post("/v1/fills/evm-spot", {
   },
 });
 
-console.log("created first partial fill", {
-  makerAuth: makerAuthObj.objectHash,
-  takerAuth: takerAuthObj.objectHash,
-  makerOrder: makerOrderObj.objectHash,
-  takerOrder: takerOrderObj.objectHash,
-  fill1: fill1.objectHash,
-});
-
-console.log("open before consume:");
+console.log("created first partial fill", fill1.objectHash);
 console.log(JSON.stringify(await get("/v1/executable/open?namespace=aon:evm-spot"), null, 2));
 
-const consumed1 = await post("/v1/executor/consume-evm-spot", {
+const consumed1 = await post("/v1/executor/consume", {
+  namespace: "aon:evm-spot",
   auto: true,
   mode: "simulate",
 });
 
-console.log("consumed first partial fill:");
+console.log("consumed first partial fill");
 console.log(JSON.stringify(consumed1, null, 2));
 
 const fill2 = await post("/v1/fills/evm-spot", {
@@ -217,9 +243,5 @@ const fill2 = await post("/v1/fills/evm-spot", {
   },
 });
 
-console.log("created second partial fill", {
-  fill2: fill2.objectHash,
-});
-
-console.log("open after first consume + second fill:");
+console.log("created second partial fill", fill2.objectHash);
 console.log(JSON.stringify(await get("/v1/executable/open?namespace=aon:evm-spot"), null, 2));
