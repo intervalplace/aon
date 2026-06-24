@@ -1,7 +1,7 @@
 //server.ts
 
 import "./polyfills.js";
-import { getAddress, type Hex } from "viem";
+import { getAddress, verifyTypedData, type Hex } from "viem";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
@@ -195,6 +195,56 @@ function csdUsdcTypes() {
       { name: "nonce", type: "bytes32" },
     ],
   };
+}
+
+function evmSpotOrderTypes() {
+  return {
+    SignedOrder: [
+      { name: "trader", type: "address" },
+      { name: "marketId", type: "bytes32" },
+      { name: "side", type: "uint8" },
+      { name: "price", type: "uint256" },
+      { name: "baseAmount", type: "uint256" },
+      { name: "orderNonce", type: "bytes32" },
+      { name: "sessionAuthHash", type: "bytes32" },
+      { name: "validAfter", type: "uint64" },
+      { name: "validBefore", type: "uint64" },
+    ],
+  };
+}
+
+function revocationTypes() {
+  return {
+    AonRevocation: [
+      { name: "targetHash", type: "bytes32" },
+      { name: "targetType", type: "string" },
+      { name: "reason", type: "string" },
+      { name: "nonce", type: "bytes32" },
+    ],
+  };
+}
+
+async function requireValidTypedSignature(args: {
+  domain: any;
+  types: any;
+  primaryType: string;
+  message: any;
+  signature: any;
+  expectedSigner: string;
+  code: string;
+}) {
+  const signature = requireHex(args.signature, "INVALID_SIGNATURE");
+
+  const ok = await verifyTypedData({
+    address: getAddress(args.expectedSigner),
+    domain: args.domain,
+    types: args.types,
+    primaryType: args.primaryType as any,
+    message: args.message,
+    signature,
+  } as any);
+
+  if (!ok) throw new Error(args.code);
 }
 
 
@@ -931,6 +981,16 @@ app.post("/v1/orders/evm-spot/from-signed-order", async (req, reply) => {
       return reply.code(400).send({ ok: false, error: { code: "SIGNER_TRADER_MISMATCH" } });
     }
 
+    await requireValidTypedSignature({
+  domain: body.domain,
+  types: body.types ?? evmSpotOrderTypes(),
+  primaryType: body.primaryType ?? "SignedOrder",
+  message: order,
+  signature: body.signature,
+  expectedSigner: signer,
+  code: "BAD_ORDER_SIGNATURE",
+});
+
     const obj: AonObject & { signature: any } = {
       objectType: "order",
       schemaVersion: "1",
@@ -1401,6 +1461,16 @@ app.post("/v1/authorizations/evm-spot/from-signed-auth", async (req, reply) => {
       return reply.code(400).send({ ok: false, error: { code: "SIGNER_GRANTOR_MISMATCH" } });
     }
 
+    await requireValidTypedSignature({
+  domain: body.domain,
+  types: body.types ?? adapter.types(),
+  primaryType: body.primaryType ?? "TradingSessionAuthorization",
+  message: authorization,
+  signature: body.signature,
+  expectedSigner: signer,
+  code: "BAD_AUTHORIZATION_SIGNATURE",
+});
+
     const obj: AonObject & { signature: any } = {
       objectType: "authorization",
       schemaVersion: "1",
@@ -1465,7 +1535,7 @@ app.post("/v1/revocations", async (req, reply) => {
       });
     }
 
-if (!body.signature) {
+if (!body.signature?.signature) {
   return reply.code(400).send({
     ok: false,
     error: { code: "MISSING_REVOCATION_SIGNATURE" },
@@ -1478,6 +1548,29 @@ if (!body.signature) {
       target.payload?.authorization?.grantor ??
       target.creator;
 
+    const reason = body.reason ?? "user_revoked";
+const nonce = requireHex(
+  body.nonce ?? body.signature?.message?.nonce,
+  "MISSING_REVOCATION_NONCE"
+);
+
+const revocationMessage = {
+  targetHash,
+  targetType: target.objectType,
+  reason,
+  nonce,
+};
+
+await requireValidTypedSignature({
+  domain: body.signature.domain,
+  types: body.signature.types ?? revocationTypes(),
+  primaryType: body.signature.primaryType ?? "AonRevocation",
+  message: revocationMessage,
+  signature: body.signature.signature,
+  expectedSigner: signer,
+  code: "BAD_REVOCATION_SIGNATURE",
+});
+
     const obj: AonObject & { signature?: any } = {
       objectType: "revocation",
       schemaVersion: "1",
@@ -1489,7 +1582,8 @@ if (!body.signature) {
         revocationType: body.revocationType ?? `${target.objectType}_revocation`,
         targetType: target.objectType,
         targetHash,
-        reason: body.reason ?? "user_revoked",
+        reason,
+        nonce,
       },
       signature: body.signature
         ? {
