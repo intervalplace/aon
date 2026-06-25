@@ -24,10 +24,7 @@ import {
   lockCsdUsdcOnEvm,
   refundExpiredCsdUsdcLockOnEvm,
 } from "./executors/evmCsdUsdcSettlement.js";
-import {
-  getNamespaceAdapter,
-  listNamespaceAdapters,
-} from "./namespaces/index.js";
+
 
 import {
     getIndex,
@@ -639,20 +636,7 @@ app.get("/v1/receipts/by-reserve/:reserveHash", async (req) => {
   };
 });
 
-app.get(
-    "/v1/index",
-    async () => {
 
-        return {
-
-            ok: true,
-
-            index: getIndex(),
-
-        };
-
-    }
-);
 
 app.get("/v1/receipts/by-proof/:proofHash", async (req) => {
   const proofHash = ((req.params as any).proofHash as string).toLowerCase();
