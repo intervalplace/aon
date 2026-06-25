@@ -25,6 +25,7 @@ import {
   refundExpiredCsdUsdcLockOnEvm,
 } from "./executors/evmCsdUsdcSettlement.js";
 
+import { walkInboundGraph } from "./graph.js";
 
 import {
     getIndex,
@@ -493,6 +494,26 @@ app.get("/v1/executable", async (req) => {
   };
 });
 
+app.get("/v1/graph/walk/:hash", async (req, reply) => {
+  const hash = (req.params as any).hash;
+
+  const graph = walkInboundGraph(hash, {
+    maxDepth: Number((req.query as any).maxDepth ?? 8),
+    maxObjects: Number((req.query as any).maxObjects ?? 1000),
+  });
+
+  if (!graph) {
+    return reply.code(404).send({
+      ok: false,
+      error: { code: "GRAPH_ROOT_NOT_FOUND" },
+    });
+  }
+
+  return {
+    ok: true,
+    graph,
+  };
+});
 
 app.get("/v1/graph-state", async (req) => {
   const q = req.query as any;
