@@ -1,10 +1,10 @@
 import type { AonObject } from "../object.js";
+
 import { verifyObjectSignature } from "./signatures.js";
 
 import {
-    requireObject,
     requireNamespace,
-    requireReferenceCount,
+    requireReferenceTypes,
 } from "./graph.js";
 
 export async function validateOrder(
@@ -13,12 +13,10 @@ export async function validateOrder(
 
     await verifyObjectSignature(obj);
 
-    requireReferenceCount(obj, 1);
-
-    const auth =
-        requireObject(
-            obj.references[0],
-            "authorization"
+    const [auth] =
+        requireReferenceTypes(
+            obj,
+            ["authorization"]
         );
 
     requireNamespace(
