@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import path from "path";
 import { AonObject, assertValidObject, finalizeObject } from "./object.js";
 import { validateObject } from "./validators/index.js";
+import { updateGraph } from "./graphUpdater.js";
+
 
 const DATA_DIR = process.env.AON_DATA_DIR ?? "data";
 const OBJECTS_DIR = path.join(DATA_DIR, "objects");
@@ -158,10 +160,12 @@ export async function putObject(input: AonObject) {
     path: rel,
   };
 
-  rebuildDerivedIndexes();
-  await saveStore();
+rebuildDerivedIndexes();
+await saveStore();
 
-  return obj;
+await updateGraph(obj);
+
+return obj;
 }
 
 export function getObject(hash: string) {
