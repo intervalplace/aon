@@ -39,3 +39,22 @@ export function requireReferenceCount(
         throw new Error("INVALID_REFERENCE_COUNT");
     }
 }
+
+export function requireReferenceTypes(
+    obj: AonObject,
+    expected: string[]
+) {
+
+    requireReferenceCount(
+        obj,
+        expected.length
+    );
+
+    return expected.map(
+        (type, i) =>
+            requireObject(
+                obj.references[i],
+                type
+            )
+    );
+}
