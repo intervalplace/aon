@@ -277,13 +277,31 @@ export function markCandidateStatus(args: {
   candidate.reason = args.reason;
   candidate.updatedAt = nowMs();
 
-  if (args.status === "executable") {
-    graph.status = "executable";
-  }
+const openCandidates = [
+  ...graph.proofCandidates,
+  ...graph.fillCandidates,
+].filter((c) =>
+  c.status === "candidate" ||
+  c.status === "waiting" ||
+  c.status === "executable"
+);
 
-  if (args.status === "consumed") {
-    graph.status = "consumed";
-  }
+const executableCandidates = openCandidates.filter(
+  (c) => c.status === "executable"
+);
+
+if (executableCandidates.length > 0) {
+  graph.status = "executable";
+} else if (openCandidates.length > 0) {
+  graph.status =
+    graph.namespace === "aon:evm-spot"
+      ? "waiting_fill"
+      : graph.reserve
+        ? "waiting_proof"
+        : "waiting_reserve";
+} else {
+  graph.status = "consumed";
+}
 
   graph.updatedAt = nowMs();
 
