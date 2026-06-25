@@ -492,6 +492,39 @@ app.get("/v1/executable", async (req) => {
   };
 });
 
+
+app.get("/v1/graph-state", async (req) => {
+  const q = req.query as any;
+  const { listAuthorizationGraphs } = await import("./graphState.js");
+
+  return {
+    ok: true,
+    graphs: listAuthorizationGraphs({
+      namespace: q.namespace,
+      status: q.status,
+    }),
+  };
+});
+
+app.get("/v1/graph-state/:authorizationHash", async (req, reply) => {
+  const { authorizationHash } = req.params as any;
+  const { getAuthorizationGraph } = await import("./graphState.js");
+
+  const graph = getAuthorizationGraph(authorizationHash);
+
+  if (!graph) {
+    return reply.code(404).send({
+      ok: false,
+      error: { code: "GRAPH_NOT_FOUND" },
+    });
+  }
+
+  return {
+    ok: true,
+    graph,
+  };
+});
+
 app.get("/v1/authorizations/open", async (req) => {
 
   const q = req.query as any;
