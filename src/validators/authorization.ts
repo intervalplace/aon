@@ -1,11 +1,16 @@
-import type { AonObject } from "../object.js";
-import { verifyObjectSignature } from "./signatures.js";
+// validators/authorization.ts
 
-export async function validateAuthorization(
-    obj: AonObject
-) {
-    await verifyObjectSignature(obj);
-    await verifyAuthorizationObject(obj);
+import { getAddress, verifyTypedData, type Address, type Hex } from "viem";
+import type { AonObject } from "../object.js";
+
+function assertSameObject(a: any, b: any) {
+  if (JSON.stringify(a) !== JSON.stringify(b)) {
+    throw new Error("AUTH_MESSAGE_PAYLOAD_MISMATCH");
+  }
+}
+
+export async function validateAuthorization(obj: AonObject) {
+  await verifyAuthorizationObject(obj);
 }
 
 export async function verifyAuthorizationObject(obj: AonObject) {
@@ -21,10 +26,7 @@ export async function verifyAuthorizationObject(obj: AonObject) {
     throw new Error("AUTH_SIGNATURE_MISSING");
   }
 
-  if (sig.scheme !== "eip712") {
-    throw new Error("AUTH_SIGNATURE_SCHEME_UNSUPPORTED");
-  }
-
+  if (sig.scheme !== "eip712") throw new Error("AUTH_SIGNATURE_SCHEME_UNSUPPORTED");
   if (!sig.signer) throw new Error("AUTH_SIGNER_MISSING");
   if (!sig.signature) throw new Error("AUTH_SIGNATURE_HEX_MISSING");
   if (!sig.domain) throw new Error("AUTH_DOMAIN_MISSING");
