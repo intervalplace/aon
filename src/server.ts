@@ -525,6 +525,24 @@ app.get("/v1/graph-state/:authorizationHash", async (req, reply) => {
   };
 });
 
+app.post("/v1/graph-state/evaluate", async (req) => {
+  const q = req.query as any;
+
+  const { listAuthorizationGraphs } = await import("./graphState.js");
+  const { evaluateGraphs } = await import("./graphEvaluator.js");
+
+  const graphs = listAuthorizationGraphs({
+    namespace: q.namespace,
+  });
+
+  await evaluateGraphs(graphs);
+
+  return {
+    ok: true,
+    evaluated: graphs.length,
+  };
+});
+
 app.get("/v1/authorizations/open", async (req) => {
 
   const q = req.query as any;
