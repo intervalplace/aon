@@ -1,7 +1,7 @@
 // validators/authorization.ts
-
 import { getAddress, verifyTypedData, type Address, type Hex } from "viem";
 import type { AonObject } from "../object.js";
+import { assertSameCanonical } from "../utils/canonical.js";
 
 function assertSameObject(a: any, b: any) {
   if (JSON.stringify(a) !== JSON.stringify(b)) {
