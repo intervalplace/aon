@@ -18,10 +18,55 @@ type AonIndexEntry = {
 
 type AonIndex = {
   objects: Record<string, AonIndexEntry>;
+  inbound: Record<string, string[]>;
+  byType: Record<string, string[]>;
+  byNamespace: Record<string, string[]>;
+  byTypeNamespace: Record<string, string[]>;
 };
 
-let index: AonIndex = { objects: {} };
+function emptyIndex(): AonIndex {
+  return {
+    objects: {},
+    inbound: {},
+    byType: {},
+    byNamespace: {},
+    byTypeNamespace: {},
+  };
+}
+
+let index: AonIndex = emptyIndex();
 let objects: Record<string, AonObject> = {};
+
+function addUnique(map: Record<string, string[]>, key: string, value: string) {
+  const k = key.toLowerCase();
+  const v = value.toLowerCase();
+
+  if (!map[k]) map[k] = [];
+  if (!map[k].includes(v)) map[k].push(v);
+}
+
+function typeNamespaceKey(type: string, namespace: string) {
+  return `${type}::${namespace}`;
+}
+
+function rebuildDerivedIndexes() {
+  index.inbound = {};
+  index.byType = {};
+  index.byNamespace = {};
+  index.byTypeNamespace = {};
+
+  for (const entry of Object.values(index.objects)) {
+    const h = entry.objectHash.toLowerCase();
+
+    addUnique(index.byType, entry.objectType, h);
+    addUnique(index.byNamespace, entry.namespace, h);
+    addUnique(index.byTypeNamespace, typeNamespaceKey(entry.objectType, entry.namespace), h);
+
+    for (const ref of entry.references ?? []) {
+      addUnique(index.inbound, ref, h);
+    }
+  }
+}
 
 function shardPath(hash: string) {
   const h = hash.toLowerCase();
@@ -49,9 +94,17 @@ export async function loadStore() {
 
   try {
     const raw = await fs.readFile(INDEX_PATH, "utf8");
-    index = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+
+    index = {
+      ...emptyIndex(),
+      ...parsed,
+      objects: parsed.objects ?? {},
+    };
+
+    rebuildDerivedIndexes();
   } catch {
-    index = { objects: {} };
+    index = emptyIndex();
   }
 
   objects = {};
@@ -60,14 +113,11 @@ export async function loadStore() {
     try {
       const raw = await fs.readFile(path.join(DATA_DIR, entry.path), "utf8");
       const obj = JSON.parse(raw) as AonObject;
-
       const h = obj.objectHash?.toLowerCase();
-      if (!h) continue;
 
-      objects[h] = obj;
+      if (h) objects[h] = obj;
     } catch {
-      // Skip corrupt/missing object files for now.
-      // Later: quarantine and rebuild index.
+      // Later: quarantine corrupt/missing files.
     }
   }
 }
@@ -108,6 +158,7 @@ export async function putObject(input: AonObject) {
     path: rel,
   };
 
+  rebuildDerivedIndexes();
   await saveStore();
 
   return obj;
@@ -117,24 +168,45 @@ export function getObject(hash: string) {
   return objects[hash.toLowerCase()] ?? null;
 }
 
+export function getInboundObjectHashes(hash: string) {
+  return index.inbound[hash.toLowerCase()] ?? [];
+}
+
+export function getInboundObjects(hash: string) {
+  return getInboundObjectHashes(hash)
+    .map(getObject)
+    .filter(Boolean) as AonObject[];
+}
+
 export function listObjects(filter?: {
   objectType?: string;
   namespace?: string;
   references?: string;
 }) {
-  return Object.values(objects).filter((obj) => {
-    if (filter?.objectType && obj.objectType !== filter.objectType) return false;
-    if (filter?.namespace && obj.namespace !== filter.namespace) return false;
+  let hashes: string[];
 
-    if (
-      filter?.references &&
-      !obj.references
-        .map((r) => r.toLowerCase())
-        .includes(filter.references.toLowerCase())
-    ) {
-      return false;
-    }
+  if (filter?.objectType && filter?.namespace) {
+    hashes = index.byTypeNamespace[
+      typeNamespaceKey(filter.objectType, filter.namespace).toLowerCase()
+    ] ?? [];
+  } else if (filter?.objectType) {
+    hashes = index.byType[filter.objectType.toLowerCase()] ?? [];
+  } else if (filter?.namespace) {
+    hashes = index.byNamespace[filter.namespace.toLowerCase()] ?? [];
+  } else {
+    hashes = Object.keys(index.objects);
+  }
 
-    return true;
-  });
+  let out = hashes
+    .map(getObject)
+    .filter(Boolean) as AonObject[];
+
+  if (filter?.references) {
+    const ref = filter.references.toLowerCase();
+    out = out.filter((obj) =>
+      (obj.references ?? []).map((r) => r.toLowerCase()).includes(ref)
+    );
+  }
+
+  return out;
 }
