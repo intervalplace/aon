@@ -1,7 +1,10 @@
 import type { AonObject } from "../object.js";
 
 import { verifyObjectSignature } from "./signatures.js";
-import { requireObject } from "./graph.js";
+
+import {
+    requireReferenceTypes,
+} from "./graph.js";
 
 export async function validateRevocation(
     obj: AonObject
@@ -9,7 +12,8 @@ export async function validateRevocation(
 
     await verifyObjectSignature(obj);
 
-    requireObject(
-        obj.references[0]
+    requireReferenceTypes(
+        obj,
+        ["authorization"]
     );
 }
