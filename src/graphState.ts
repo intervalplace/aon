@@ -34,9 +34,9 @@ export type AuthorizationGraph = {
   authorization: string;
   namespace: string;
   reserve?: string;
-  proofs: Candidate[];
-  fills: Candidate[];
-  receipts: Candidate[];
+  proofCandidates: Candidate[];
+  fillCandidates: Candidate[];
+  receiptCandidates: Candidate[];
   status: GraphStatus;
   updatedAt: number;
 };
