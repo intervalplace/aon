@@ -194,7 +194,7 @@ export function addProofCandidate(args: {
     namespace: args.namespace,
   });
 
-  const candidate = upsertCandidate(graph.proofs, {
+  const candidate = upsertCandidate(graph.proofCandidates, {
     objectHash: args.proofHash,
     objectType: "proof",
     status: args.status ?? "candidate",
@@ -219,7 +219,7 @@ export function addFillCandidate(args: {
     namespace: args.namespace,
   });
 
-  const candidate = upsertCandidate(graph.fills, {
+  const candidate = upsertCandidate(graph.fillCandidates, {
     objectHash: args.fillHash,
     objectType: "fill",
     status: args.status ?? "candidate",
@@ -244,7 +244,7 @@ export function addReceiptCandidate(args: {
     namespace: args.namespace,
   });
 
-  const candidate = upsertCandidate(graph.receipts, {
+  const candidate = upsertCandidate(graph.receiptCandidates, {
     objectHash: args.receiptHash,
     objectType: "receipt",
     status: args.status ?? "consumed",
@@ -268,7 +268,7 @@ export function markCandidateStatus(args: {
   if (!graph) return null;
 
   const h = lowerHash(args.candidateHash);
-  const all = [...graph.proofs, ...graph.fills, ...graph.receipts];
+  const all = [...graph.proofCandidates, ...graph.fillCandidates, ...graph.receiptCandidates];
   const candidate = all.find((c) => lowerHash(c.objectHash) === h);
 
   if (!candidate) return null;
@@ -297,7 +297,7 @@ export function markGraphRevoked(authorizationHash: string) {
   graph.status = "revoked";
   graph.updatedAt = nowMs();
 
-  for (const c of [...graph.proofs, ...graph.fills]) {
+  for (const c of [...graph.proofCandidates, ...graph.fillCandidates]) {
     if (c.status === "candidate" || c.status === "waiting" || c.status === "executable") {
       c.status = "revoked";
       c.reason = "AUTHORIZATION_REVOKED";
