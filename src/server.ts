@@ -29,6 +29,10 @@ import {
   listNamespaceAdapters,
 } from "./namespaces/index.js";
 
+import {
+    getIndex,
+} from "./index.js";
+
 const app = Fastify({ logger: true });
 
 function nowMs() {
@@ -634,6 +638,21 @@ app.get("/v1/receipts/by-reserve/:reserveHash", async (req) => {
     receipts,
   };
 });
+
+app.get(
+    "/v1/index",
+    async () => {
+
+        return {
+
+            ok: true,
+
+            index: getIndex(),
+
+        };
+
+    }
+);
 
 app.get("/v1/receipts/by-proof/:proofHash", async (req) => {
   const proofHash = ((req.params as any).proofHash as string).toLowerCase();
