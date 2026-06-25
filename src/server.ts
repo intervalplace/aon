@@ -372,6 +372,10 @@ async function consumeGraph(
 
 await app.register(cors, { origin: true });
 await loadStore();
+
+const { loadGraphState } = await import("./graphState.js");
+await loadGraphState();
+
 await startP2p();
 
 
