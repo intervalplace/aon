@@ -4,9 +4,11 @@ import type { AonObject } from "../object.js";
 import { assertSameCanonical } from "../utils/canonical.js";
 
 function assertSameObject(a: any, b: any) {
-  if (JSON.stringify(a) !== JSON.stringify(b)) {
-    throw new Error("AUTH_MESSAGE_PAYLOAD_MISMATCH");
-  }
+assertSameCanonical(
+  obj.payload.authorization,
+  sig.message,
+  "AUTH_PAYLOAD_MESSAGE_MISMATCH"
+);
 }
 
 export async function validateAuthorization(obj: AonObject) {
