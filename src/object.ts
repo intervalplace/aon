@@ -5,6 +5,7 @@ export type AonObjectType =
   | "condition"
   | "order"
   | "fill"
+  | "reserve"
   | "proof"
   | "receipt"
   | "revocation"
@@ -18,7 +19,7 @@ export type AonObject = {
   creator?: string;
   references: string[];
   payload: Record<string, unknown>;
-  signature?: string;
+  signature?: any;
   objectHash?: string;
 };
 
