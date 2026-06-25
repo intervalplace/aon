@@ -51,9 +51,7 @@ export function walkInboundGraph(
 
     if (item.depth >= maxDepth) continue;
 
-    const inbound = getInboundObjects(h);
-
-    for (const child of inbound) {
+    for (const child of getInboundObjects(h)) {
       if (!child.objectHash) continue;
 
       queue.push({
@@ -67,18 +65,5 @@ export function walkInboundGraph(
     rootHash: lowerHash(rootHash),
     objects,
     byHash,
-  };
-}
-
-export function partitionGraphObjects(objects: AonObject[]) {
-  return {
-    authorizations: objects.filter((o) => o.objectType === "authorization"),
-    reserves: objects.filter((o) => o.objectType === "reserve"),
-    proofs: objects.filter((o) => o.objectType === "proof"),
-    fills: objects.filter((o) => o.objectType === "fill"),
-    receipts: objects.filter((o) => o.objectType === "receipt"),
-    revocations: objects.filter((o) => o.objectType === "revocation"),
-    orders: objects.filter((o) => o.objectType === "order"),
-    namespaceManifests: objects.filter((o) => o.objectType === "namespace_manifest"),
   };
 }
