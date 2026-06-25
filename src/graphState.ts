@@ -66,9 +66,9 @@ function emptyGraph(args: {
   return {
     authorization: lowerHash(args.authorizationHash),
     namespace: args.namespace,
-    proofs: [],
-    fills: [],
-    receipts: [],
+    proofCandidates: [],
+    fillCandidates: [],
+    receiptCandidates: [],
     status: "waiting_reserve",
     updatedAt: nowMs(),
   };
