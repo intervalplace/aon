@@ -1,20 +1,11 @@
 import { AonObject } from "./object.js";
+import { getInboundObjects, getObject } from "./store.js";
 
-export function getInboundReferences(objects: AonObject[], targetHash: string) {
-  const t = targetHash.toLowerCase();
-
-  return objects.filter((obj) =>
-    obj.references.map((r) => r.toLowerCase()).includes(t)
-  );
+export function getInboundReferences(_objects: AonObject[], targetHash: string) {
+  return getInboundObjects(targetHash);
 }
 
-export function getGraph(objects: AonObject[], rootHash: string) {
-  const byHash = new Map(
-    objects
-      .filter((o) => o.objectHash)
-      .map((o) => [o.objectHash!.toLowerCase(), o])
-  );
-
+export function getGraph(_objects: AonObject[], rootHash: string) {
   const seen = new Set<string>();
   const edgeSeen = new Set<string>();
   const nodes: AonObject[] = [];
@@ -32,7 +23,7 @@ export function getGraph(objects: AonObject[], rootHash: string) {
     if (seen.has(h)) return;
     seen.add(h);
 
-    const obj = byHash.get(h);
+    const obj = getObject(h);
     if (!obj?.objectHash) return;
 
     nodes.push(obj);
@@ -42,13 +33,11 @@ export function getGraph(objects: AonObject[], rootHash: string) {
       visit(ref);
     }
 
-    for (const inbound of objects) {
+    for (const inbound of getInboundObjects(h)) {
       if (!inbound.objectHash) continue;
 
-      if ((inbound.references ?? []).map((r) => r.toLowerCase()).includes(h)) {
-        addEdge(inbound.objectHash, obj.objectHash);
-        visit(inbound.objectHash);
-      }
+      addEdge(inbound.objectHash, obj.objectHash);
+      visit(inbound.objectHash);
     }
   }
 
