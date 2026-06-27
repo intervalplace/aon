@@ -8,7 +8,7 @@ The node stores, indexes, and propagates content-addressed Authorization Objects
 
 AON is a distributed object propagation network for authorized state transitions. Rather than embedding authorization inside institutions, applications, or intermediaries, AON externalizes authorization into independently addressable objects that can be discovered, verified, and consumed by any participant.
 
-The node is the infrastructure layer. Everything above it — namespace logic, graph evaluation, execution — lives in [aon-sdk](https://github.com/intervalplace/aon-sdk).
+The node is the infrastructure layer. Everything above it, such as namespace logic, graph evaluation, and execution lives in [aon-sdk](https://github.com/intervalplace/aon-sdk).
 
 ## Architecture
 
@@ -26,7 +26,7 @@ src/
   utils/canonical.ts
 ```
 
-The node depends only on the `AonTransport` interface. The libp2p/TCP implementation is one transport — not the protocol. Alternative transports (LoRa, Bluetooth mesh, radio) implement the same interface and require no changes to the node.
+The node depends only on the `AonTransport` interface. The libp2p/TCP implementation is one transport, it is not the protocol. Alternative transports (LoRa, Bluetooth mesh, radio) implement the same interface and require no changes to the node.
 
 ## Object model
 
@@ -45,7 +45,7 @@ type AonObject = {
 };
 ```
 
-The node verifies hash integrity on every inbound object. It does not interpret `payload` — that is the namespace's responsibility.
+The node verifies hash integrity on every inbound object. It does not interpret `payload`. That is the namespace's responsibility.
 
 ## Running a node
 
@@ -137,4 +137,4 @@ The node code changes nothing. The transport interface is the only contract.
 
 ## SDK
 
-Namespace adapters, graph evaluation, execution logic, and example scripts live in [aon-sdk](https://github.com/intervalplace/aon-sdk). Executors interact with the node exclusively through the HTTP API — submitting objects via `POST /v1/objects` and reading them back via `GET /v1/objects`.
+Namespace adapters, graph evaluation, execution logic, and example scripts live in [aon-sdk](https://github.com/intervalplace/aon-sdk). Executors interact with the node exclusively through the HTTP API, submitting objects via `POST /v1/objects` and reading them back via `GET /v1/objects`.
