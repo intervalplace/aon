@@ -1,33 +1,34 @@
-//server.ts
+// server.ts
 import "./polyfills.js";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { loadStore, putObject, getObject, listObjects } from "./store.js";
 import { getInboundReferences, getGraph } from "./refs.js";
-import {
-  announceObject,
-  dialPeer,
-  getP2pInfo,
-  requestObjectFromPeer,
-  startP2p,
-  getPubsubInfo,
-  exchangePeersWith,
-} from "./p2p.js";
-import { walkInboundGraph } from "./graph.js";
+import type { AonObject } from "./object.js";
 import type { AonTransport } from "./transport.js";
 import { LibP2pTransport } from "./transports/libp2p.js";
+import { walkInboundGraph } from "./graph.js";
 
 const app = Fastify({ logger: true });
 const port = Number(process.env.AON_PORT ?? 8787);
 
-function latestFirst(a: any, b: any) {
-  return Number(b.createdAt ?? 0) - Number(a.createdAt ?? 0);
-}
+// ── Transport ─────────────────────────────────────────────────────────────────
+// To use a different transport, swap this import and instantiation.
+// The rest of this file never changes.
+//
+// import { LoRaTransport } from "./transports/lora.js";
+// const transport: AonTransport = new LoRaTransport();
+
+const transport: AonTransport = new LibP2pTransport();
+
+transport.onObject(async (obj: AonObject) => {
+  await putObject(obj);
+});
 
 await app.register(cors, { origin: true });
 await loadStore();
-await startP2p();
+await transport.start();
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ app.post("/v1/objects", async (req, reply) => {
       });
     }
 
-    await announceObject(obj);
+    await transport.announceObject(obj);
 
     return { ok: true, objectHash, object: obj };
   } catch (err: any) {
@@ -131,27 +132,22 @@ app.get("/v1/graph/walk/:hash", async (req, reply) => {
 
 app.get("/v1/p2p/info", async () => ({
   ok: true,
-  p2p: getP2pInfo(),
+  p2p: transport.getInfo(),
 }));
 
 app.get("/v1/p2p/pubsub", async () => ({
   ok: true,
-  pubsub: getPubsubInfo(),
+  pubsub: transport.getPubsubInfo(),
 }));
 
 app.post("/v1/p2p/dial", async (req, reply) => {
   try {
     const body = req.body as any;
-
     if (!body.addr) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_MULTIADDR" },
-      });
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_MULTIADDR" } });
     }
-
-    const p2p = await dialPeer(body.addr);
-    return { ok: true, p2p };
+    const result = await transport.dialPeer(body.addr);
+    return { ok: true, ...result };
   } catch (err: any) {
     return reply.code(400).send({
       ok: false,
@@ -163,22 +159,13 @@ app.post("/v1/p2p/dial", async (req, reply) => {
 app.post("/v1/p2p/request-object", async (req, reply) => {
   try {
     const body = req.body as any;
-
     if (!body.peerId) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_PEER_ID" },
-      });
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_PEER_ID" } });
     }
-
     if (!body.objectHash) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_OBJECT_HASH" },
-      });
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_OBJECT_HASH" } });
     }
-
-    const object = await requestObjectFromPeer(body.peerId, body.objectHash);
+    const object = await transport.requestObject(body.objectHash, body.peerId);
     return { ok: true, objectHash: object.objectHash, object };
   } catch (err: any) {
     return reply.code(400).send({
@@ -192,15 +179,10 @@ app.post("/v1/p2p/gossip/:objectHash", async (req, reply) => {
   try {
     const objectHash = (req.params as any).objectHash as string;
     const obj = getObject(objectHash);
-
     if (!obj) {
-      return reply.code(404).send({
-        ok: false,
-        error: { code: "OBJECT_NOT_FOUND" },
-      });
+      return reply.code(404).send({ ok: false, error: { code: "OBJECT_NOT_FOUND" } });
     }
-
-    await announceObject(obj);
+    await transport.announceObject(obj);
     return { ok: true, objectHash, status: "announced" };
   } catch (err: any) {
     return reply.code(400).send({
@@ -214,15 +196,10 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
   try {
     const objectHash = (req.params as any).objectHash as string;
     const obj = getObject(objectHash);
-
     if (!obj) {
-      return reply.code(404).send({
-        ok: false,
-        error: { code: "OBJECT_NOT_FOUND" },
-      });
+      return reply.code(404).send({ ok: false, error: { code: "OBJECT_NOT_FOUND" } });
     }
-
-    await announceObject(obj);
+    await transport.announceObject(obj);
     return { ok: true, objectHash, status: "push_attempted" };
   } catch (err: any) {
     return reply.code(400).send({
@@ -235,15 +212,10 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
 app.post("/v1/p2p/exchange", async (req, reply) => {
   try {
     const body = req.body as any;
-
     if (!body.peerId) {
-      return reply.code(400).send({
-        ok: false,
-        error: { code: "MISSING_PEER_ID" },
-      });
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_PEER_ID" } });
     }
-
-    const result = await exchangePeersWith(body.peerId);
+    const result = await transport.exchangePeers(body.peerId);
     return { ok: true, result };
   } catch (err: any) {
     return reply.code(400).send({
