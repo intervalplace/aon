@@ -15,6 +15,8 @@ import {
   exchangePeersWith,
 } from "./p2p.js";
 import { walkInboundGraph } from "./graph.js";
+import type { AonTransport } from "./transport.js";
+import { LibP2pTransport } from "./transports/libp2p.js";
 
 const app = Fastify({ logger: true });
 const port = Number(process.env.AON_PORT ?? 8787);
