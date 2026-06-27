@@ -1,9 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
 import { AonObject, assertValidObject, finalizeObject } from "./object.js";
-import { validateObject } from "./validators/index.js";
-import { updateGraph } from "./graphUpdater.js";
-
 
 const DATA_DIR = process.env.AON_DATA_DIR ?? "data";
 const OBJECTS_DIR = path.join(DATA_DIR, "objects");
@@ -42,7 +39,6 @@ let objects: Record<string, AonObject> = {};
 function addUnique(map: Record<string, string[]>, key: string, value: string) {
   const k = key.toLowerCase();
   const v = value.toLowerCase();
-
   if (!map[k]) map[k] = [];
   if (!map[k].includes(v)) map[k].push(v);
 }
@@ -59,11 +55,9 @@ function rebuildDerivedIndexes() {
 
   for (const entry of Object.values(index.objects)) {
     const h = entry.objectHash.toLowerCase();
-
     addUnique(index.byType, entry.objectType, h);
     addUnique(index.byNamespace, entry.namespace, h);
     addUnique(index.byTypeNamespace, typeNamespaceKey(entry.objectType, entry.namespace), h);
-
     for (const ref of entry.references ?? []) {
       addUnique(index.inbound, ref, h);
     }
@@ -73,13 +67,7 @@ function rebuildDerivedIndexes() {
 function shardPath(hash: string) {
   const h = hash.toLowerCase();
   const clean = h.startsWith("0x") ? h.slice(2) : h;
-
-  return path.join(
-    OBJECTS_DIR,
-    clean.slice(0, 2),
-    clean.slice(2, 4),
-    `${h}.json`
-  );
+  return path.join(OBJECTS_DIR, clean.slice(0, 2), clean.slice(2, 4), `${h}.json`);
 }
 
 async function exists(file: string) {
@@ -97,13 +85,11 @@ export async function loadStore() {
   try {
     const raw = await fs.readFile(INDEX_PATH, "utf8");
     const parsed = JSON.parse(raw);
-
     index = {
       ...emptyIndex(),
       ...parsed,
       objects: parsed.objects ?? {},
     };
-
     rebuildDerivedIndexes();
   } catch {
     index = emptyIndex();
@@ -116,17 +102,15 @@ export async function loadStore() {
       const raw = await fs.readFile(path.join(DATA_DIR, entry.path), "utf8");
       const obj = JSON.parse(raw) as AonObject;
       const h = obj.objectHash?.toLowerCase();
-
       if (h) objects[h] = obj;
     } catch {
-      // Later: quarantine corrupt/missing files.
+      // quarantine corrupt/missing files later
     }
   }
 }
 
 export async function saveStore() {
   await fs.mkdir(DATA_DIR, { recursive: true });
-
   const tmp = `${INDEX_PATH}.tmp-${process.pid}-${Date.now()}`;
   await fs.writeFile(tmp, JSON.stringify(index, null, 2));
   await fs.rename(tmp, INDEX_PATH);
@@ -136,14 +120,11 @@ export async function putObject(input: AonObject) {
   const obj = finalizeObject(input);
   const objectHash = assertValidObject(obj).toLowerCase();
 
-  await validateObject(obj);
-
   const file = shardPath(objectHash);
   const rel = path.relative(DATA_DIR, file);
 
   if (!(await exists(file))) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
     await fs.writeFile(tmp, JSON.stringify(obj, null, 2));
     await fs.rename(tmp, file);
@@ -160,12 +141,10 @@ export async function putObject(input: AonObject) {
     path: rel,
   };
 
-rebuildDerivedIndexes();
-await saveStore();
+  rebuildDerivedIndexes();
+  await saveStore();
 
-await updateGraph(obj);
-
-return obj;
+  return obj;
 }
 
 export function getObject(hash: string) {
@@ -201,9 +180,7 @@ export function listObjects(filter?: {
     hashes = Object.keys(index.objects);
   }
 
-  let out = hashes
-    .map(getObject)
-    .filter(Boolean) as AonObject[];
+  let out = hashes.map(getObject).filter(Boolean) as AonObject[];
 
   if (filter?.references) {
     const ref = filter.references.toLowerCase();
