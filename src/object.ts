@@ -1,18 +1,26 @@
 import { keccak256, toBytes } from "viem";
 
-export type AonObjectType =
-  | "authorization"
-  | "condition"
-  | "order"
-  | "fill"
-  | "reserve"
-  | "proof"
-  | "receipt"
-  | "revocation"
-  | "namespace_manifest";
+// Protocol-defined object types. These are the five primitives the protocol
+// recognizes. Namespaces may define any additional objectType strings they
+// need — the node stores and propagates them without interpretation.
+//
+// Protocol primitives:
+//   authorization  — permission for a bounded state transition
+//   condition      — requirement that must be satisfied before execution
+//   proof          — evidence that a condition has been satisfied
+//   receipt        — record of completed execution
+//   revocation     — cancellation of a prior object
+//
+// Examples of namespace-defined types (not protocol-level):
+//   reserve        — aon:csd-usdc specific
+//   order          — aon:evm-spot specific
+//   fill           — aon:evm-spot specific
+//
+// objectType is a free string. The protocol does not restrict what values
+// namespaces may use.
 
 export type AonObject = {
-  objectType: AonObjectType;
+  objectType: string;
   schemaVersion: "1";
   namespace: string;
   createdAt: number;
