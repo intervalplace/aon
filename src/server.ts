@@ -9,6 +9,9 @@ import type { AonObject } from "./object.js";
 import type { AonTransport } from "./transport.js";
 import { LibP2pTransport } from "./transports/libp2p.js";
 import { LoRaTransport } from "./transports/lora.js";
+import { WebSocketTransport } from "./transports/websocket.js";
+import { BluetoothTransport } from "./transports/bluetooth.js";
+import { ReticulumTransport } from "./transports/reticulum.js";
 import { MultiTransport } from "./transports/multi.js";
 import { walkInboundGraph } from "./graph.js";
 
@@ -32,10 +35,28 @@ function buildTransports(): AonTransport[] {
   // Always include libp2p
   transports.push(new LibP2pTransport());
 
+  // Include WebSocket if enabled (always on by default — disable with AON_WS=false)
+  if (process.env.AON_WS !== "false") {
+    transports.push(new WebSocketTransport());
+    console.log("[node] WebSocket transport enabled", { port: process.env.AON_WS_PORT ?? 8788 });
+  }
+
   // Include LoRa if a serial port is configured
   if (process.env.AON_LORA_PORT) {
     transports.push(new LoRaTransport());
     console.log("[node] LoRa transport enabled", { port: process.env.AON_LORA_PORT });
+  }
+
+  // Include Bluetooth if enabled
+  if (process.env.AON_BT === "true") {
+    transports.push(new BluetoothTransport());
+    console.log("[node] Bluetooth transport enabled", { mode: process.env.AON_BT_MODE ?? "classic" });
+  }
+
+  // Include Reticulum if enabled (gives LoRa, I2P, serial, TCP — via RNS config)
+  if (process.env.AON_RNS === "true") {
+    transports.push(new ReticulumTransport());
+    console.log("[node] Reticulum transport enabled", { config: process.env.AON_RNS_CONFIG ?? "~/.reticulum" });
   }
 
   return transports;
