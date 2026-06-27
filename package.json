@@ -1,7 +1,11 @@
 {
+  "name": "@intervalplace/aon",
+  "version": "0.1.0",
+  "description": "Minimal transport-agnostic node for the Authorization Object Network",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/server.ts"
+    "dev": "tsx src/server.ts",
+    "start": "node --loader tsx src/server.ts"
   },
   "dependencies": {
     "@chainsafe/libp2p-gossipsub": "^14.1.2",
@@ -23,6 +27,23 @@
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "uint8arrays": "^6.1.1",
-    "viem": "^2.21.0"
-  }
+    "viem": "^2.21.0",
+
+    "ws": "^8.18.0",
+
+    "serialport": "^12.0.0"
+  },
+  "optionalDependencies": {
+    "@abandonware/noble": "^1.9.2-15",
+    "@abandonware/bleno": "^0.5.1-6",
+    "bluetooth-serial-port": "^2.2.7"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/intervalplace/aon.git"
+  },
+  "license": "MIT"
 }
