@@ -8,19 +8,40 @@ import { getInboundReferences, getGraph } from "./refs.js";
 import type { AonObject } from "./object.js";
 import type { AonTransport } from "./transport.js";
 import { LibP2pTransport } from "./transports/libp2p.js";
+import { LoRaTransport } from "./transports/lora.js";
+import { MultiTransport } from "./transports/multi.js";
 import { walkInboundGraph } from "./graph.js";
 
 const app = Fastify({ logger: true });
 const port = Number(process.env.AON_PORT ?? 8787);
 
 // ── Transport ─────────────────────────────────────────────────────────────────
-// To use a different transport, swap this import and instantiation.
-// The rest of this file never changes.
+// MultiTransport is always used. Transports are assembled from environment
+// variables — any configured transport runs, others are skipped silently.
 //
-// import { LoRaTransport } from "./transports/lora.js";
-// const transport: AonTransport = new LoRaTransport();
+// libp2p (TCP/IP) is always included.
+// LoRa is included when AON_LORA_PORT is set.
+//
+// This means every node survives independently of which transports are
+// available. If the internet goes down, LoRa keeps running. If the radio
+// is absent, libp2p runs alone. No code change required — just config.
 
-const transport: AonTransport = new LibP2pTransport();
+function buildTransports(): AonTransport[] {
+  const transports: AonTransport[] = [];
+
+  // Always include libp2p
+  transports.push(new LibP2pTransport());
+
+  // Include LoRa if a serial port is configured
+  if (process.env.AON_LORA_PORT) {
+    transports.push(new LoRaTransport());
+    console.log("[node] LoRa transport enabled", { port: process.env.AON_LORA_PORT });
+  }
+
+  return transports;
+}
+
+const transport: AonTransport = new MultiTransport(buildTransports());
 
 transport.onObject(async (obj: AonObject) => {
   await putObject(obj);
