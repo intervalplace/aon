@@ -33,8 +33,28 @@ function emptyIndex(): AonIndex {
   };
 }
 
+
 let index: AonIndex = emptyIndex();
 let objects: Record<string, AonObject> = {};
+
+// ── Write lock ────────────────────────────────────────────────────────────────
+// Prevents concurrent putObject calls from interleaving index writes.
+// Node.js is single-threaded but async — without this, two overlapping
+// putObject calls can each read the index, modify it, and write back,
+// with the second write overwriting the first's changes.
+
+let writeLock: Promise<void> = Promise.resolve();
+
+function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+  const next = writeLock.then(fn);
+  // Keep the chain moving even if fn throws
+  writeLock = next.then(
+    () => {},
+    () => {}
+  );
+  return next;
+}
+
 
 function addUnique(map: Record<string, string[]>, key: string, value: string) {
   const k = key.toLowerCase();
@@ -116,13 +136,15 @@ export async function saveStore() {
   await fs.rename(tmp, INDEX_PATH);
 }
 
-export async function putObject(input: AonObject) {
+export async function putObject(input: AonObject): Promise<AonObject> {
+  // Finalize and validate outside the lock — pure computation, no I/O
   const obj = finalizeObject(input);
   const objectHash = assertValidObject(obj).toLowerCase();
-
   const file = shardPath(objectHash);
   const rel = path.relative(DATA_DIR, file);
 
+  // Write the shard file outside the lock — it's content-addressed so
+  // writing the same file twice is harmless
   if (!(await exists(file))) {
     await fs.mkdir(path.dirname(file), { recursive: true });
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
@@ -130,21 +152,24 @@ export async function putObject(input: AonObject) {
     await fs.rename(tmp, file);
   }
 
-  objects[objectHash] = obj;
+  // Hold the lock only for the in-memory index update and index file write
+  return withWriteLock(async () => {
+    objects[objectHash] = obj;
 
-  index.objects[objectHash] = {
-    objectHash,
-    objectType: obj.objectType,
-    namespace: obj.namespace,
-    createdAt: Number(obj.createdAt ?? 0),
-    references: obj.references ?? [],
-    path: rel,
-  };
+    index.objects[objectHash] = {
+      objectHash,
+      objectType: obj.objectType,
+      namespace: obj.namespace,
+      createdAt: Number(obj.createdAt ?? 0),
+      references: obj.references ?? [],
+      path: rel,
+    };
 
-  rebuildDerivedIndexes();
-  await saveStore();
+    rebuildDerivedIndexes();
+    await saveStore();
 
-  return obj;
+    return obj;
+  });
 }
 
 export function getObject(hash: string) {
