@@ -299,12 +299,17 @@ export class LibP2pTransport implements AonTransport {
 
     const privateKey = await this.loadOrCreatePrivateKey();
 
+    const maxPeers = Number(process.env.AON_MAX_PEERS ?? 50);
+
     this.node = await createLibp2p({
       privateKey,
       addresses: { listen: [`/ip4/0.0.0.0/tcp/${listenPort}`] },
       transports: [tcp()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],
+      connectionManager: {
+        maxConnections: maxPeers,
+      },
       peerDiscovery: bootstrapPeers.length ? [bootstrap({ list: bootstrapPeers })] : [],
       services: {
         identify: identify(),
@@ -405,24 +410,11 @@ export class LibP2pTransport implements AonTransport {
       from: this.selfPeerInfo(),
       announcedAt: Date.now(),
     };
+    // Gossipsub handles fan-out — no need to also open direct streams to every peer.
     await this.node.services.pubsub.publish(TOPIC, this.jsonBytes(announcement));
-    const peers = this.node.getPeers();
-    for (const peer of peers) {
-      try {
-        const stream: any = await this.node.dialProtocol(peer, ANNOUNCE_PROTOCOL);
-        await this.writeJsonToStream(stream, announcement);
-        if (typeof stream.close === "function") await stream.close();
-      } catch (err: any) {
-        console.error("[p2p] direct hash announce failed", {
-          peer: peer.toString(),
-          objectHash: obj.objectHash,
-          error: err?.message ?? String(err),
-        });
-      }
-    }
-    console.log("[p2p] announced object hash", {
+    console.log("[p2p] announced object hash via gossipsub", {
       objectHash: obj.objectHash,
-      peers: peers.map((p) => p.toString()),
+      peers: this.node.getPeers().length,
     });
   }
 
