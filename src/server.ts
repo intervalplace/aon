@@ -107,13 +107,19 @@ app.post("/v1/objects", async (req, reply) => {
 
 app.get("/v1/objects", async (req) => {
   const q = req.query as any;
+  const result = listObjects({
+    objectType:  q.objectType,
+    namespace:   q.namespace,
+    references:  q.references,
+    limit:       q.limit  ? Number(q.limit)  : undefined,
+    offset:      q.offset ? Number(q.offset) : undefined,
+  });
   return {
     ok: true,
-    objects: listObjects({
-      objectType: q.objectType,
-      namespace: q.namespace,
-      references: q.references,
-    }),
+    objects: result.objects,
+    total:   result.total,
+    offset:  result.offset,
+    limit:   result.limit,
   };
 });
 

@@ -67,20 +67,24 @@ function typeNamespaceKey(type: string, namespace: string) {
   return `${type}::${namespace}`;
 }
 
+function addToIndexEntry(entry: AonIndexEntry) {
+  const h = entry.objectHash.toLowerCase();
+  addUnique(index.byType, entry.objectType, h);
+  addUnique(index.byNamespace, entry.namespace, h);
+  addUnique(index.byTypeNamespace, typeNamespaceKey(entry.objectType, entry.namespace), h);
+  for (const ref of entry.references ?? []) {
+    addUnique(index.inbound, ref, h);
+  }
+}
+
+// Full rebuild — used only at startup when loading from disk
 function rebuildDerivedIndexes() {
   index.inbound = {};
   index.byType = {};
   index.byNamespace = {};
   index.byTypeNamespace = {};
-
   for (const entry of Object.values(index.objects)) {
-    const h = entry.objectHash.toLowerCase();
-    addUnique(index.byType, entry.objectType, h);
-    addUnique(index.byNamespace, entry.namespace, h);
-    addUnique(index.byTypeNamespace, typeNamespaceKey(entry.objectType, entry.namespace), h);
-    for (const ref of entry.references ?? []) {
-      addUnique(index.inbound, ref, h);
-    }
+    addToIndexEntry(entry);
   }
 }
 
@@ -156,7 +160,7 @@ export async function putObject(input: AonObject): Promise<AonObject> {
   return withWriteLock(async () => {
     objects[objectHash] = obj;
 
-    index.objects[objectHash] = {
+    const entry: AonIndexEntry = {
       objectHash,
       objectType: obj.objectType,
       namespace: obj.namespace,
@@ -165,7 +169,8 @@ export async function putObject(input: AonObject): Promise<AonObject> {
       path: rel,
     };
 
-    rebuildDerivedIndexes();
+    index.objects[objectHash] = entry;
+    addToIndexEntry(entry); // incremental — no full rebuild needed
     await saveStore();
 
     return obj;
@@ -190,6 +195,8 @@ export function listObjects(filter?: {
   objectType?: string;
   namespace?: string;
   references?: string;
+  limit?: number;
+  offset?: number;
 }) {
   let hashes: string[];
 
@@ -214,5 +221,10 @@ export function listObjects(filter?: {
     );
   }
 
-  return out;
+  const total = out.length;
+  const offset = filter?.offset ?? 0;
+  const limit = filter?.limit ?? total;
+  out = out.slice(offset, offset + limit);
+
+  return { objects: out, total, offset, limit };
 }
