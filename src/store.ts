@@ -54,6 +54,9 @@ const stmtListType  = db.prepare(`SELECT data FROM objects WHERE objectType = ? 
 const stmtListNs    = db.prepare(`SELECT data FROM objects WHERE namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
 const stmtListTyNs  = db.prepare(`SELECT data FROM objects WHERE objectType = ? AND namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
 const stmtInbound   = db.prepare(`SELECT sourceHash FROM refs WHERE targetHash = ?`);
+// H1: references filter — objects that reference a given target hash
+const stmtListByRef      = db.prepare(`SELECT o.data FROM objects o INNER JOIN refs r ON r.sourceHash = o.hash WHERE r.targetHash = ? ORDER BY o.createdAt DESC LIMIT ? OFFSET ?`);
+const stmtCountByRef     = db.prepare(`SELECT COUNT(*) as c FROM objects o INNER JOIN refs r ON r.sourceHash = o.hash WHERE r.targetHash = ?`);
 
 // ── Transaction: insert object + its refs atomically ─────────────────────────
 
@@ -127,6 +130,7 @@ export function getInboundObjects(hash: string): AonObject[] {
 export function listObjects(filter?: {
   objectType?: string;
   namespace?:  string;
+  references?: string;   // H1: filter to objects that reference this hash
   limit?:      number;
   offset?:     number;
 }) {
@@ -134,11 +138,16 @@ export function listObjects(filter?: {
   const offset = filter?.offset ?? 0;
   const type   = filter?.objectType;
   const ns     = filter?.namespace;
+  const ref    = filter?.references?.toLowerCase();
 
   let rows:  { data: string }[];
   let total: number;
 
-  if (type && ns) {
+  // H1: references filter takes precedence when provided
+  if (ref) {
+    rows  = stmtListByRef.all(ref, limit, offset) as { data: string }[];
+    total = ((stmtCountByRef.get(ref) as any)?.c ?? 0);
+  } else if (type && ns) {
     rows  = stmtListTyNs.all(type, ns, limit, offset) as { data: string }[];
     total = ((stmtCountTyNs.get(type, ns) as any)?.c ?? 0);
   } else if (type) {

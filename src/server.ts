@@ -112,6 +112,7 @@ app.get("/v1/objects", async (req) => {
   const result = listObjects({
     objectType: q.objectType,
     namespace:  q.namespace,
+    references: q.references,
     limit,
     offset:     q.offset ? Number(q.offset) : undefined,
   });
