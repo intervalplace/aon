@@ -67,6 +67,12 @@ export function assertValidObject(obj: AonObject) {
     throw new Error("INVALID_PAYLOAD");
   }
 
+  // DoS guards — prevent spam objects that exhaust storage or bandwidth
+  if (obj.objectType.length > 256)  throw new Error("OBJECT_TYPE_TOO_LONG");
+  if (obj.namespace.length  > 256)  throw new Error("NAMESPACE_TOO_LONG");
+  if (obj.references.length >  64)  throw new Error("TOO_MANY_REFERENCES");
+  if (JSON.stringify(obj.payload).length > 512_000) throw new Error("PAYLOAD_TOO_LARGE");
+
   const expected = hashObject(obj);
 
   if (obj.objectHash && obj.objectHash.toLowerCase() !== expected.toLowerCase()) {
