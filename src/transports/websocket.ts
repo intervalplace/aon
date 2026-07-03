@@ -332,7 +332,7 @@ export class WebSocketTransport implements AonTransport {
     });
   }
 
-  private async connectToPeer(url: string) {
+  private async connectToPeer(url: string, backoffMs = RECONNECT_DELAY_MS) {
     if (this.stopping) return;
 
     console.log("[ws] connecting to peer", { url });
@@ -355,19 +355,19 @@ export class WebSocketTransport implements AonTransport {
 
       console.log("[ws] connected to peer", { url, peerId });
 
-      // Reconnect on close with exponential backoff
-      let backoffMs = RECONNECT_DELAY_MS;
+      // Reconnect on close with exponential backoff — pass current backoff
+      // as parameter so it actually increases across reconnect attempts
       ws.once("close", () => {
         if (!this.stopping) {
-          setTimeout(() => { backoffMs = RECONNECT_DELAY_MS; this.connectToPeer(url); }, backoffMs);
+          const next = Math.min(backoffMs * 2, 60_000);
+          setTimeout(() => this.connectToPeer(url, next), backoffMs);
         }
       });
     } catch (err: any) {
       console.error("[ws] peer connection failed", { url, error: err?.message });
       if (!this.stopping) {
-        // Exponential backoff capped at 60s
-        const delay = Math.min(RECONNECT_DELAY_MS * 2, 60_000);
-        setTimeout(() => this.connectToPeer(url), delay);
+        const next = Math.min(backoffMs * 2, 60_000);
+        setTimeout(() => this.connectToPeer(url, next), backoffMs);
       }
     }
   }
@@ -514,7 +514,14 @@ export class WebSocketTransport implements AonTransport {
     // Dial up to 10 returned peers
     const toTry = remotePeers.slice(0, 10);
     const dialResults = await Promise.allSettled(
-      toTry.map(info => this.dialPeerInfo(info))
+      toTry.map((info: any) => {
+        const addr = (info.addrs ?? []).find(
+          (a: string) => a.startsWith("ws://") || a.startsWith("wss://")
+        );
+        return addr
+          ? this.dialPeer(addr)
+          : Promise.resolve({ ok: false, reason: "NO_WS_ADDR" });
+      })
     );
 
     return {
