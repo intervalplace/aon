@@ -68,7 +68,8 @@ transport.onObject(async (obj: AonObject) => {
   await putObject(obj);
 });
 
-await app.register(cors, { origin: true });
+// Allow configuring CORS origin via env — defaults to open for p2p nodes
+await app.register(cors, { origin: process.env.AON_CORS_ORIGIN ?? true });
 await loadStore();
 await transport.start();
 
@@ -107,12 +108,12 @@ app.post("/v1/objects", async (req, reply) => {
 
 app.get("/v1/objects", async (req) => {
   const q = req.query as any;
+  const limit = q.limit ? Math.min(Number(q.limit), 1000) : undefined;
   const result = listObjects({
-    objectType:  q.objectType,
-    namespace:   q.namespace,
-    references:  q.references,
-    limit:       q.limit  ? Number(q.limit)  : undefined,
-    offset:      q.offset ? Number(q.offset) : undefined,
+    objectType: q.objectType,
+    namespace:  q.namespace,
+    limit,
+    offset:     q.offset ? Number(q.offset) : undefined,
   });
   return {
     ok: true,
@@ -277,3 +278,15 @@ app.post("/v1/p2p/exchange", async (req, reply) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 await app.listen({ port, host: "0.0.0.0" });
+
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+
+async function shutdown() {
+  console.log("[server] shutting down...");
+  try { await transport.stop(); } catch {}
+  try { await app.close(); } catch {}
+  process.exit(0);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT",  shutdown);
