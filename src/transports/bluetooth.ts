@@ -59,12 +59,12 @@ const require = createRequire(import.meta.url);
 // AON uses a fixed UUID to identify itself during Bluetooth discovery.
 // Nodes scan for this UUID and connect automatically.
 
-const AON_SERVICE_UUID        = "aon00000-0000-0000-0000-000000000001";
-const AON_ANNOUNCE_CHAR_UUID  = "aon00000-0000-0000-0000-000000000002";
-const AON_REQUEST_CHAR_UUID   = "aon00000-0000-0000-0000-000000000003";
-const AON_RESPONSE_CHAR_UUID  = "aon00000-0000-0000-0000-000000000004";
+const AON_SERVICE_UUID        = "a01f0001-0000-4000-b000-000000000000";
+const AON_ANNOUNCE_CHAR_UUID  = "a01f0002-0000-4000-b000-000000000000";
+const AON_REQUEST_CHAR_UUID   = "a01f0003-0000-4000-b000-000000000000";
+const AON_RESPONSE_CHAR_UUID  = "a01f0004-0000-4000-b000-000000000000";
 const AON_RFCOMM_CHANNEL      = 23;   // fixed RFCOMM channel for classic mode
-const AON_RFCOMM_SERVICE_UUID = "aon0000000000000000000000000000001";
+const AON_RFCOMM_SERVICE_UUID = "a01f000000000000000000000000000001";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -450,10 +450,12 @@ export class BluetoothTransport implements AonTransport {
         if (this.peers.has(peerId)) continue;
 
         try {
+          // Only connect if the device advertises the AON RFCOMM channel —
+          // prevents connecting to every Bluetooth device in range
           const conn = await this.classic.connect(address);
           this.registerClassicPeer(conn, address);
         } catch (err: any) {
-          // Not an AON node or connection failed — skip silently
+          // Device doesn't have AON RFCOMM channel or connection failed — skip
         }
       }
     } catch (err: any) {
@@ -477,8 +479,14 @@ export class BluetoothTransport implements AonTransport {
 
       // Subscribe to response notifications
       let responseBuffer = Buffer.alloc(0);
+      const BLE_MAX_BUFFER = 1_000_000; // 1MB hard limit on BLE response buffer
       responseChar?.subscribe();
       responseChar?.on("data", (chunk: Buffer) => {
+        if (responseBuffer.length + chunk.length > BLE_MAX_BUFFER) {
+          console.error("[ble] response buffer exceeded max size — dropping");
+          responseBuffer = Buffer.alloc(0);
+          return;
+        }
         responseBuffer = Buffer.concat([responseBuffer, chunk]);
         // Try to parse — responses may arrive in multiple chunks
         try {

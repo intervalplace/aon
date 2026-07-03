@@ -15,6 +15,7 @@ import { identify } from "@libp2p/identify";
 import { fromString, toString } from "uint8arrays";
 import { multiaddr } from "@multiformats/multiaddr";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { getObject } from "../store.js";
 import { dirname } from "path";
 import {
   generateKeyPair,
@@ -78,12 +79,11 @@ export class LibP2pTransport implements AonTransport {
   private async peerInfos(): Promise<PeerInfo[]> {
     if (!this.node) return [];
     const peers = this.node.getPeers();
-    const out: PeerInfo[] = [];
-    for (const peerId of peers) {
+    return Promise.all(peers.map(async (peerId) => {
       const peerIdString = peerId.toString();
       const rawAddrs =
-        this.node.peerStore && typeof this.node.peerStore.get === "function"
-          ? ((await this.node.peerStore.get(peerId))?.addresses ?? []).map(
+        this.node!.peerStore && typeof this.node!.peerStore.get === "function"
+          ? ((await this.node!.peerStore.get(peerId))?.addresses ?? []).map(
               (a: any) => a.multiaddr?.toString?.() ?? a.toString?.()
             )
           : [];
@@ -92,9 +92,8 @@ export class LibP2pTransport implements AonTransport {
         .map((addr: string) =>
           addr.includes("/p2p/") ? addr : `${addr}/p2p/${peerIdString}`
         );
-      out.push({ peerId: peerIdString, addrs });
-    }
-    return out;
+      return { peerId: peerIdString, addrs };
+    }));
   }
 
   private selfPeerInfo() {
@@ -142,7 +141,9 @@ export class LibP2pTransport implements AonTransport {
 
   private async readJsonFromStream(stream: any, timeoutMs = 10_000): Promise<any> {
     const iterator = stream[Symbol.asyncIterator]();
-    let out = new Uint8Array();
+    // Collect chunks in an array, concatenate once at end — avoids O(n²) copies
+    const chunks: Uint8Array[] = [];
+    let totalLen = 0;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       const remaining = Math.max(1, deadline - Date.now());
@@ -154,13 +155,15 @@ export class LibP2pTransport implements AonTransport {
       ]);
       if (result.done) break;
       const bytes = this.chunkToBytes(result.value);
-      if (out.length + bytes.length > MAX_P2P_JSON_BYTES) {
+      totalLen += bytes.length;
+      if (totalLen > MAX_P2P_JSON_BYTES) {
         throw new Error("P2P_MESSAGE_TOO_LARGE");
       }
-      const next = new Uint8Array(out.length + bytes.length);
-      next.set(out, 0);
-      next.set(bytes, out.length);
-      out = next;
+      chunks.push(bytes);
+      // Try to parse each time a new chunk arrives — message may be complete
+      const out = new Uint8Array(totalLen);
+      let offset = 0;
+      for (const c of chunks) { out.set(c, offset); offset += c.length; }
       try {
         return JSON.parse(toString(out));
       } catch {
@@ -348,7 +351,6 @@ export class LibP2pTransport implements AonTransport {
         }
         // Ask the node for the object via the registered handler's store
         // We serve what we have; the node wired getObject via onObject
-        const { getObject } = await import("../store.js");
         const obj = getObject(objectHash);
         if (!obj) {
           await this.writeJsonToStream(stream, { ok: false, error: { code: "OBJECT_NOT_FOUND" } });
@@ -438,11 +440,13 @@ export class LibP2pTransport implements AonTransport {
       from: this.selfPeerInfo(),
     });
     const response = await this.readJsonFromStream(stream.source ?? stream);
-    const dialResults = [];
-    for (const info of response.peers ?? []) {
-      dialResults.push(await this.dialPeerInfo(info));
-    }
-    return { ...response, dialResults };
+    // Cap at 10 peers and dial concurrently — prevents a malicious peer from
+    // blocking the exchange with a large list of unreachable addresses
+    const peersToTry = (response.peers ?? []).slice(0, 10);
+    const dialResults = await Promise.allSettled(
+      peersToTry.map((info: any) => this.dialPeerInfo(info))
+    );
+    return { ...response, dialResults: dialResults.map(r => r.status === "fulfilled" ? r.value : null) };
   }
 
   getInfo() {

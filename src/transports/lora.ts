@@ -247,7 +247,8 @@ export class LoRaTransport implements AonTransport {
   private peers = new Map<string, { addrs: string[]; lastSeen: number }>();
   private seenMessages = new Set<string>();
   private incoming = new Map<string, IncomingMessage>();
-  private beaconTimer: NodeJS.Timeout | null = null;
+  private beaconTimer:  NodeJS.Timeout | null = null;
+  private cleanupTimer: NodeJS.Timeout | null = null;
   private objectHandler: ((obj: AonObject) => Promise<void>) | null = null;
 
   // Pending request/response state
@@ -422,10 +423,13 @@ export class LoRaTransport implements AonTransport {
       console.log("[lora] received object response", { objectHash, from: fromPeerId });
 
       // Resolve any pending request for this hash
-      const pending = this.pendingRequests.get(objectHash.toLowerCase());
-      if (pending) {
+      // Find any pending request for this objectHash (may have unique reqId suffix)
+      const hashLower = objectHash.toLowerCase();
+      const pendingKey = [...this.pendingRequests.keys()].find(k => k.startsWith(hashLower));
+      const pending = pendingKey ? this.pendingRequests.get(pendingKey) : undefined;
+      if (pending && pendingKey) {
         clearTimeout(pending.timer);
-        this.pendingRequests.delete(objectHash.toLowerCase());
+        this.pendingRequests.delete(pendingKey);
         pending.resolve(object);
       }
 
@@ -468,22 +472,26 @@ export class LoRaTransport implements AonTransport {
     }
   }
 
+  private requestCounter = 0;
+
   private async fetchFromPeer(peerId: string, objectHash: string): Promise<AonObject> {
     return new Promise((resolve, reject) => {
-      const key = objectHash.toLowerCase();
+      // Use a unique request ID so concurrent requests for the same hash
+      // don't overwrite each other's callbacks
+      const reqId = `${objectHash.toLowerCase()}-${++this.requestCounter}`;
 
       const timer = setTimeout(() => {
-        this.pendingRequests.delete(key);
+        this.pendingRequests.delete(reqId);
         reject(new Error("LORA_REQUEST_TIMEOUT"));
       }, REQUEST_TIMEOUT_MS);
 
-      this.pendingRequests.set(key, { resolve, reject, timer });
+      this.pendingRequests.set(reqId, { resolve, reject, timer });
 
       // Send the request — 32-byte hash as binary
-      const hashBuf = Buffer.from(key.replace("0x", ""), "hex");
+      const hashBuf = Buffer.from(objectHash.toLowerCase().replace("0x", ""), "hex");
       this.sendFrames(MSG_REQUEST, hashBuf).catch((err) => {
         clearTimeout(timer);
-        this.pendingRequests.delete(key);
+        this.pendingRequests.delete(reqId);
         reject(err);
       });
     });
@@ -516,6 +524,18 @@ export class LoRaTransport implements AonTransport {
       }
     }, BEACON_INTERVAL_MS);
 
+    // Evict incomplete reassembly buffers — prevents memory exhaustion when
+    // chunks are lost (common on LoRa). Any incomplete message older than 60s
+    // is discarded.
+    this.cleanupTimer = setInterval(() => {
+      const cutoff = Date.now() - 60_000;
+      for (const [key, msg] of this.incoming) {
+        if (msg.receivedAt < cutoff) {
+          this.incoming.delete(key);
+        }
+      }
+    }, 30_000);
+
     this.started = true;
     console.log("[lora] started", {
       peerId: this.peerId,
@@ -530,7 +550,8 @@ export class LoRaTransport implements AonTransport {
 
   async stop() {
     this.stopping = true;
-    if (this.beaconTimer) { clearInterval(this.beaconTimer); this.beaconTimer = null; }
+    if (this.beaconTimer)  { clearInterval(this.beaconTimer);  this.beaconTimer  = null; }
+    if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null; }
     if (this.serial) { await this.serial.close(); this.serial = null; }
     this.started = false;
   }
@@ -617,9 +638,10 @@ export class LoRaTransport implements AonTransport {
   }
 
   private async sendBeacon() {
+    // Truncate peer list — a large peer list can exceed the 255-chunk LoRa limit
     const beacon = {
       peerId: this.peerId,
-      peers: this.peerList(),
+      peers: this.peerList().slice(0, 20),
       ts: Date.now(),
     };
     const data = Buffer.from(JSON.stringify(beacon));

@@ -355,16 +355,19 @@ export class WebSocketTransport implements AonTransport {
 
       console.log("[ws] connected to peer", { url, peerId });
 
-      // Reconnect on close
+      // Reconnect on close with exponential backoff
+      let backoffMs = RECONNECT_DELAY_MS;
       ws.once("close", () => {
         if (!this.stopping) {
-          setTimeout(() => this.connectToPeer(url), RECONNECT_DELAY_MS);
+          setTimeout(() => { backoffMs = RECONNECT_DELAY_MS; this.connectToPeer(url); }, backoffMs);
         }
       });
     } catch (err: any) {
       console.error("[ws] peer connection failed", { url, error: err?.message });
       if (!this.stopping) {
-        setTimeout(() => this.connectToPeer(url), RECONNECT_DELAY_MS);
+        // Exponential backoff capped at 60s
+        const delay = Math.min(RECONNECT_DELAY_MS * 2, 60_000);
+        setTimeout(() => this.connectToPeer(url), delay);
       }
     }
   }
@@ -377,7 +380,10 @@ export class WebSocketTransport implements AonTransport {
     const { WebSocketServer } = require("ws");
 
     this.server = createServer();
-    this.wss = new WebSocketServer({ server: this.server });
+    this.wss = new WebSocketServer({
+      server: this.server,
+      maxPayload: Number(process.env.AON_WS_MAX_PAYLOAD ?? 1_000_000), // 1MB default
+    });
 
     this.wss.on("connection", (ws: any, req: IncomingMessage) => {
       if (this.peers.size >= this.maxClients) {
@@ -488,11 +494,32 @@ export class WebSocketTransport implements AonTransport {
     const peer = this.peers.get(peerId);
     if (!peer) throw new Error("WS_PEER_NOT_FOUND");
 
-    this.send(peer.ws, { type: "peers" });
+    // Send peer list request and wait for the response
+    const remotePeers = await new Promise<PeerInfo[]>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error("WS_PEER_EXCHANGE_TIMEOUT")), 5_000);
+      const handler = (msg: HostMessage) => {
+        if (msg.type === "peer_list") {
+          clearTimeout(timeout);
+          peer.ws.off("message", rawHandler);
+          resolve(msg.peers ?? []);
+        }
+      };
+      const rawHandler = (data: any) => {
+        try { handler(JSON.parse(data.toString())); } catch {}
+      };
+      peer.ws.on("message", rawHandler);
+      this.send(peer.ws, { type: "peers" });
+    }).catch(() => [] as PeerInfo[]);
+
+    // Dial up to 10 returned peers
+    const toTry = remotePeers.slice(0, 10);
+    const dialResults = await Promise.allSettled(
+      toTry.map(info => this.dialPeerInfo(info))
+    );
 
     return {
-      peers: this.peerList(),
-      dialResults: [],
+      peers: remotePeers,
+      dialResults: dialResults.map(r => r.status === "fulfilled" ? r.value : null),
     };
   }
 

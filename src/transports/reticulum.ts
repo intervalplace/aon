@@ -130,8 +130,22 @@ export class ReticulumTransport implements AonTransport {
 
   // ── Bridge management ──────────────────────────────────────────────────────
 
+  private messageQueue: HostMessage[] = [];
+  private readonly MAX_QUEUE = 100;
+
   private sendToBridge(msg: HostMessage) {
-    if (!this.bridge || !this.bridge.stdin || !this.ready) return;
+    if (!this.bridge || !this.bridge.stdin || !this.ready) {
+      // M15: Queue messages during restart window instead of dropping them
+      if (this.messageQueue.length < this.MAX_QUEUE) {
+        this.messageQueue.push(msg);
+      }
+      return;
+    }
+    // Flush any queued messages first
+    while (this.messageQueue.length > 0) {
+      const queued = this.messageQueue.shift()!;
+      try { this.bridge.stdin.write(JSON.stringify(queued) + "\n"); } catch {}
+    }
     try {
       this.bridge.stdin.write(JSON.stringify(msg) + "\n");
     } catch (err: any) {
@@ -175,6 +189,9 @@ export class ReticulumTransport implements AonTransport {
     // Wait for ready signal
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
+        // M14: Kill the bridge process before rejecting — otherwise it keeps
+        // running and the exit handler schedules a restart, creating orphan processes
+        this.bridge?.kill();
         reject(new Error("RNS_BRIDGE_READY_TIMEOUT"));
       }, READY_TIMEOUT_MS);
 
