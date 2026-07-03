@@ -1,230 +1,161 @@
-import fs from "fs/promises";
+import Database from "better-sqlite3";
+import { mkdirSync, existsSync, readFileSync } from "fs";
 import path from "path";
 import { AonObject, assertValidObject, finalizeObject } from "./object.js";
 
 const DATA_DIR = process.env.AON_DATA_DIR ?? "data";
-const OBJECTS_DIR = path.join(DATA_DIR, "objects");
-const INDEX_PATH = path.join(DATA_DIR, "index.json");
+const DB_PATH  = path.join(DATA_DIR, "aon.db");
 
-type AonIndexEntry = {
-  objectHash: string;
-  objectType: string;
-  namespace: string;
-  createdAt: number;
-  references: string[];
-  path: string;
-};
+mkdirSync(DATA_DIR, { recursive: true });
 
-type AonIndex = {
-  objects: Record<string, AonIndexEntry>;
-  inbound: Record<string, string[]>;
-  byType: Record<string, string[]>;
-  byNamespace: Record<string, string[]>;
-  byTypeNamespace: Record<string, string[]>;
-};
+const db = new Database(DB_PATH);
 
-function emptyIndex(): AonIndex {
-  return {
-    objects: {},
-    inbound: {},
-    byType: {},
-    byNamespace: {},
-    byTypeNamespace: {},
-  };
-}
+// WAL mode for better concurrent read performance.
+// NORMAL synchronous is safe with WAL — only risks data loss on OS crash,
+// not corruption. Acceptable for a p2p node.
+db.pragma("journal_mode = WAL");
+db.pragma("synchronous = NORMAL");
 
-
-let index: AonIndex = emptyIndex();
-let objects: Record<string, AonObject> = {};
-
-// ── Write lock ────────────────────────────────────────────────────────────────
-// Prevents concurrent putObject calls from interleaving index writes.
-// Node.js is single-threaded but async — without this, two overlapping
-// putObject calls can each read the index, modify it, and write back,
-// with the second write overwriting the first's changes.
-
-let writeLock: Promise<void> = Promise.resolve();
-
-function withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
-  const next = writeLock.then(fn);
-  // Keep the chain moving even if fn throws
-  writeLock = next.then(
-    () => {},
-    () => {}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS objects (
+    hash       TEXT PRIMARY KEY,
+    objectType TEXT,
+    namespace  TEXT,
+    createdAt  INTEGER,
+    data       TEXT NOT NULL
   );
-  return next;
-}
 
+  CREATE INDEX IF NOT EXISTS idx_type    ON objects(objectType);
+  CREATE INDEX IF NOT EXISTS idx_ns      ON objects(namespace);
+  CREATE INDEX IF NOT EXISTS idx_created ON objects(createdAt DESC);
+  CREATE INDEX IF NOT EXISTS idx_type_ns ON objects(objectType, namespace);
 
-function addUnique(map: Record<string, string[]>, key: string, value: string) {
-  const k = key.toLowerCase();
-  const v = value.toLowerCase();
-  if (!map[k]) map[k] = [];
-  if (!map[k].includes(v)) map[k].push(v);
-}
+  CREATE TABLE IF NOT EXISTS refs (
+    sourceHash TEXT NOT NULL,
+    targetHash TEXT NOT NULL,
+    PRIMARY KEY (sourceHash, targetHash)
+  );
 
-function typeNamespaceKey(type: string, namespace: string) {
-  return `${type}::${namespace}`;
-}
+  CREATE INDEX IF NOT EXISTS idx_ref_target ON refs(targetHash);
+`);
 
-function addToIndexEntry(entry: AonIndexEntry) {
-  const h = entry.objectHash.toLowerCase();
-  addUnique(index.byType, entry.objectType, h);
-  addUnique(index.byNamespace, entry.namespace, h);
-  addUnique(index.byTypeNamespace, typeNamespaceKey(entry.objectType, entry.namespace), h);
-  for (const ref of entry.references ?? []) {
-    addUnique(index.inbound, ref, h);
+// ── Prepared statements ───────────────────────────────────────────────────────
+
+const stmtInsert    = db.prepare(`INSERT OR IGNORE INTO objects (hash, objectType, namespace, createdAt, data) VALUES (@hash, @objectType, @namespace, @createdAt, @data)`);
+const stmtInsertRef = db.prepare(`INSERT OR IGNORE INTO refs (sourceHash, targetHash) VALUES (@sourceHash, @targetHash)`);
+const stmtGet       = db.prepare(`SELECT data FROM objects WHERE hash = ?`);
+const stmtExists    = db.prepare(`SELECT hash FROM objects WHERE hash = ? LIMIT 1`);
+const stmtCountAll  = db.prepare(`SELECT COUNT(*) as c FROM objects`);
+const stmtCountType = db.prepare(`SELECT COUNT(*) as c FROM objects WHERE objectType = ?`);
+const stmtCountNs   = db.prepare(`SELECT COUNT(*) as c FROM objects WHERE namespace = ?`);
+const stmtCountTyNs = db.prepare(`SELECT COUNT(*) as c FROM objects WHERE objectType = ? AND namespace = ?`);
+const stmtListAll   = db.prepare(`SELECT data FROM objects ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
+const stmtListType  = db.prepare(`SELECT data FROM objects WHERE objectType = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
+const stmtListNs    = db.prepare(`SELECT data FROM objects WHERE namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
+const stmtListTyNs  = db.prepare(`SELECT data FROM objects WHERE objectType = ? AND namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
+const stmtInbound   = db.prepare(`SELECT sourceHash FROM refs WHERE targetHash = ?`);
+
+// ── Transaction: insert object + its refs atomically ─────────────────────────
+
+const txnPut = db.transaction((obj: AonObject) => {
+  const hash = obj.objectHash!.toLowerCase();
+  if (stmtExists.get(hash)) return;
+
+  stmtInsert.run({
+    hash,
+    objectType: obj.objectType ?? null,
+    namespace:  obj.namespace  ?? null,
+    createdAt:  obj.createdAt  ?? null,
+    data:       JSON.stringify(obj),
+  });
+
+  for (const ref of obj.references ?? []) {
+    stmtInsertRef.run({ sourceHash: hash, targetHash: ref.toLowerCase() });
   }
-}
+});
 
-// Full rebuild — used only at startup when loading from disk
-function rebuildDerivedIndexes() {
-  index.inbound = {};
-  index.byType = {};
-  index.byNamespace = {};
-  index.byTypeNamespace = {};
-  for (const entry of Object.values(index.objects)) {
-    addToIndexEntry(entry);
-  }
-}
+// ── Migration from old file-based store ──────────────────────────────────────
 
-function shardPath(hash: string) {
-  const h = hash.toLowerCase();
-  const clean = h.startsWith("0x") ? h.slice(2) : h;
-  return path.join(OBJECTS_DIR, clean.slice(0, 2), clean.slice(2, 4), `${h}.json`);
-}
+function migrateFromFiles() {
+  const indexPath = path.join(DATA_DIR, "index.json");
+  if (!existsSync(indexPath)) return;
+  if (((stmtCountAll.get() as any)?.c ?? 0) > 0) return;
 
-async function exists(file: string) {
+  console.log("[store] Migrating from file-based store to SQLite...");
+  let count = 0;
   try {
-    await fs.stat(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function loadStore() {
-  await fs.mkdir(OBJECTS_DIR, { recursive: true });
-
-  try {
-    const raw = await fs.readFile(INDEX_PATH, "utf8");
-    const parsed = JSON.parse(raw);
-    index = {
-      ...emptyIndex(),
-      ...parsed,
-      objects: parsed.objects ?? {},
-    };
-    rebuildDerivedIndexes();
-  } catch {
-    index = emptyIndex();
-  }
-
-  objects = {};
-
-  for (const entry of Object.values(index.objects)) {
-    try {
-      const raw = await fs.readFile(path.join(DATA_DIR, entry.path), "utf8");
-      const obj = JSON.parse(raw) as AonObject;
-      const h = obj.objectHash?.toLowerCase();
-      if (h) objects[h] = obj;
-    } catch {
-      // quarantine corrupt/missing files later
+    const index = JSON.parse(readFileSync(indexPath, "utf8"));
+    for (const entry of Object.values(index.objects ?? {}) as any[]) {
+      try {
+        const filePath = path.join(DATA_DIR, entry.path);
+        if (!existsSync(filePath)) continue;
+        const obj = JSON.parse(readFileSync(filePath, "utf8")) as AonObject;
+        txnPut(obj);
+        count++;
+      } catch { /* skip corrupt entries */ }
     }
-  }
+  } catch { /* index unreadable */ }
+  console.log(`[store] Migrated ${count} objects to SQLite`);
 }
 
-export async function saveStore() {
-  await fs.mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${INDEX_PATH}.tmp-${process.pid}-${Date.now()}`;
-  await fs.writeFile(tmp, JSON.stringify(index, null, 2));
-  await fs.rename(tmp, INDEX_PATH);
+// ── Public API ────────────────────────────────────────────────────────────────
+
+export function loadStore() {
+  migrateFromFiles();
+  const total = (stmtCountAll.get() as any)?.c ?? 0;
+  console.log(`[store] SQLite ready at ${DB_PATH} — ${total} objects`);
 }
 
 export async function putObject(input: AonObject): Promise<AonObject> {
-  // Finalize and validate outside the lock — pure computation, no I/O
   const obj = finalizeObject(input);
-  const objectHash = assertValidObject(obj).toLowerCase();
-  const file = shardPath(objectHash);
-  const rel = path.relative(DATA_DIR, file);
-
-  // Write the shard file outside the lock — it's content-addressed so
-  // writing the same file twice is harmless
-  if (!(await exists(file))) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
-    await fs.writeFile(tmp, JSON.stringify(obj, null, 2));
-    await fs.rename(tmp, file);
-  }
-
-  // Hold the lock only for the in-memory index update and index file write
-  return withWriteLock(async () => {
-    objects[objectHash] = obj;
-
-    const entry: AonIndexEntry = {
-      objectHash,
-      objectType: obj.objectType,
-      namespace: obj.namespace,
-      createdAt: Number(obj.createdAt ?? 0),
-      references: obj.references ?? [],
-      path: rel,
-    };
-
-    index.objects[objectHash] = entry;
-    addToIndexEntry(entry); // incremental — no full rebuild needed
-    await saveStore();
-
-    return obj;
-  });
+  assertValidObject(obj);
+  txnPut(obj);
+  return obj;
 }
 
-export function getObject(hash: string) {
-  return objects[hash.toLowerCase()] ?? null;
+export function getObject(hash: string): AonObject | null {
+  const row = stmtGet.get(hash.toLowerCase()) as { data: string } | undefined;
+  return row ? JSON.parse(row.data) : null;
 }
 
-export function getInboundObjectHashes(hash: string) {
-  return index.inbound[hash.toLowerCase()] ?? [];
-}
-
-export function getInboundObjects(hash: string) {
-  return getInboundObjectHashes(hash)
-    .map(getObject)
-    .filter(Boolean) as AonObject[];
+export function getInboundObjects(hash: string): AonObject[] {
+  return (stmtInbound.all(hash.toLowerCase()) as { sourceHash: string }[])
+    .map(r => getObject(r.sourceHash))
+    .filter((o): o is AonObject => o !== null);
 }
 
 export function listObjects(filter?: {
   objectType?: string;
-  namespace?: string;
-  references?: string;
-  limit?: number;
-  offset?: number;
+  namespace?:  string;
+  limit?:      number;
+  offset?:     number;
 }) {
-  let hashes: string[];
-
-  if (filter?.objectType && filter?.namespace) {
-    hashes = index.byTypeNamespace[
-      typeNamespaceKey(filter.objectType, filter.namespace).toLowerCase()
-    ] ?? [];
-  } else if (filter?.objectType) {
-    hashes = index.byType[filter.objectType.toLowerCase()] ?? [];
-  } else if (filter?.namespace) {
-    hashes = index.byNamespace[filter.namespace.toLowerCase()] ?? [];
-  } else {
-    hashes = Object.keys(index.objects);
-  }
-
-  let out = hashes.map(getObject).filter(Boolean) as AonObject[];
-
-  if (filter?.references) {
-    const ref = filter.references.toLowerCase();
-    out = out.filter((obj) =>
-      (obj.references ?? []).map((r) => r.toLowerCase()).includes(ref)
-    );
-  }
-
-  const total = out.length;
+  const limit  = filter?.limit  ?? 50;
   const offset = filter?.offset ?? 0;
-  const limit = filter?.limit ?? total;
-  out = out.slice(offset, offset + limit);
+  const type   = filter?.objectType;
+  const ns     = filter?.namespace;
 
-  return { objects: out, total, offset, limit };
+  let rows:  { data: string }[];
+  let total: number;
+
+  if (type && ns) {
+    rows  = stmtListTyNs.all(type, ns, limit, offset) as { data: string }[];
+    total = ((stmtCountTyNs.get(type, ns) as any)?.c ?? 0);
+  } else if (type) {
+    rows  = stmtListType.all(type, limit, offset) as { data: string }[];
+    total = ((stmtCountType.get(type) as any)?.c ?? 0);
+  } else if (ns) {
+    rows  = stmtListNs.all(ns, limit, offset) as { data: string }[];
+    total = ((stmtCountNs.get(ns) as any)?.c ?? 0);
+  } else {
+    rows  = stmtListAll.all(limit, offset) as { data: string }[];
+    total = ((stmtCountAll.get() as any)?.c ?? 0);
+  }
+
+  return {
+    objects: rows.map(r => JSON.parse(r.data) as AonObject),
+    total,
+    offset,
+    limit,
+  };
 }

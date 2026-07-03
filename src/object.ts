@@ -24,7 +24,6 @@ export type AonObject = {
   schemaVersion: "1";
   namespace: string;
   createdAt: number;
-  creator?: string;
   references: string[];
   payload: Record<string, unknown>;
   signature?: any;
