@@ -5,7 +5,11 @@ export function getInboundReferences(_objects: AonObject[], targetHash: string) 
   return getInboundObjects(targetHash);
 }
 
-export function getGraph(_objects: AonObject[], rootHash: string) {
+export function getGraph(
+  rootHash: string,
+  opts?: { maxObjects?: number }
+) {
+  const maxObjects = opts?.maxObjects ?? 1000;
   const seen = new Set<string>();
   const edgeSeen = new Set<string>();
   const nodes: AonObject[] = [];
@@ -19,6 +23,7 @@ export function getGraph(_objects: AonObject[], rootHash: string) {
   }
 
   function visit(hash: string) {
+    if (nodes.length >= maxObjects) return;
     const h = hash.toLowerCase();
     if (seen.has(h)) return;
     seen.add(h);
@@ -35,7 +40,6 @@ export function getGraph(_objects: AonObject[], rootHash: string) {
 
     for (const inbound of getInboundObjects(h)) {
       if (!inbound.objectHash) continue;
-
       addEdge(inbound.objectHash, obj.objectHash);
       visit(inbound.objectHash);
     }
