@@ -215,7 +215,7 @@ if (process.env.AON_MY_TRANSPORT === "true") {
 
 ## Specification
 
-The full protocol specification lives at [SPEC.md](./spec.md).
+The full protocol specification lives at [SPEC.md](./docs/spec.md).
 
 ## SDK
 
