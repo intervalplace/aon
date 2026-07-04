@@ -35,6 +35,7 @@
 //   const transport: AonTransport = new LoRaTransport();
 
 import { createRequire } from "module";
+import { getObject } from "../store.js";
 import { randomBytes } from "crypto";
 import { EventEmitter } from "events";
 import type { AonObject } from "../object.js";
@@ -399,7 +400,6 @@ export class LoRaTransport implements AonTransport {
     console.log("[lora] received object request", { objectHash, from: fromPeerId });
 
     try {
-      const { getObject } = await import("../store.js");
       const obj = getObject(objectHash);
       if (!obj) {
         console.log("[lora] requested object not found", { objectHash });

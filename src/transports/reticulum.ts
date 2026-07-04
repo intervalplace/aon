@@ -59,6 +59,7 @@
 //   const transport: AonTransport = new ReticulumTransport();
 
 import { spawn, type ChildProcess } from "child_process";
+import { getObject } from "../store.js";
 import { createInterface } from "readline";
 import { randomBytes } from "crypto";
 import { resolve, dirname } from "path";
@@ -314,7 +315,6 @@ export class ReticulumTransport implements AonTransport {
 
   private async handleRequest(objectHash: string, requestId: string, fromPeerId: string) {
     try {
-      const { getObject } = await import("../store.js");
       const obj = getObject(objectHash);
       if (!obj) return;
 

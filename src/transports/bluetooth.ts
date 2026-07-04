@@ -47,6 +47,7 @@
 //   const transport: AonTransport = new BluetoothTransport();
 
 import { randomBytes } from "crypto";
+import { getObject } from "../store.js";
 import { EventEmitter } from "events";
 import { createRequire } from "module";
 import type { AonObject } from "../object.js";
@@ -389,7 +390,6 @@ export class BluetoothTransport implements AonTransport {
 
   private async handleRequest(fromPeerId: string, objectHash: string, requestId: string) {
     try {
-      const { getObject } = await import("../store.js");
       const obj = getObject(objectHash);
       if (!obj) return;
 

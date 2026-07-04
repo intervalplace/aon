@@ -63,6 +63,7 @@
 //   ws.send(JSON.stringify({ type: "submit", object: myAuthObject }));
 
 import { createServer, type IncomingMessage, type Server } from "http";
+import { getObject } from "../store.js";
 import { randomBytes } from "crypto";
 import { createRequire } from "module";
 import type { AonObject } from "../object.js";
@@ -239,7 +240,6 @@ export class WebSocketTransport implements AonTransport {
 
   private async handleRequest(ws: any, objectHash: string, requestId: string) {
     try {
-      const { getObject } = await import("../store.js");
       const obj = getObject(objectHash);
       if (!obj) return; // we don't have it — no response
       this.send(ws, { type: "response", objectHash, object: obj, requestId });
@@ -497,7 +497,7 @@ export class WebSocketTransport implements AonTransport {
     // Send peer list request and wait for the response
     const remotePeers = await new Promise<PeerInfo[]>((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error("WS_PEER_EXCHANGE_TIMEOUT")), 5_000);
-      const handler = (msg: HostMessage) => {
+      const handler = (msg: WsMessage) => {
         if (msg.type === "peer_list") {
           clearTimeout(timeout);
           peer.ws.off("message", rawHandler);
