@@ -34,17 +34,24 @@ AON_VERSION  = "1"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# Thread safety for stdout — RNS fires callbacks from its own threads;
+# concurrent send() calls without locking would interleave JSON writes.
+_stdout_lock = threading.Lock()
+
 def send(msg: dict):
     """Send a JSON message to Node.js via stdout."""
     try:
-        sys.stdout.write(json.dumps(msg) + "\n")
-        sys.stdout.flush()
+        with _stdout_lock:
+            sys.stdout.write(json.dumps(msg) + "\n")
+            sys.stdout.flush()
     except Exception as e:
         sys.stderr.write(f"[rns-bridge] send error: {e}\n")
 
-def log(msg: str):
+def log(msg: str, error: bool = False):
     sys.stderr.write(f"[rns-bridge] {msg}\n")
     sys.stderr.flush()
+    if error:
+        send({"type": "error", "message": msg})
 
 # ── Announce handler ──────────────────────────────────────────────────────────
 
@@ -87,8 +94,7 @@ class AonAnnounceHandler:
 class LinkManager:
     def __init__(self, destination):
         self.destination = destination
-        self.links = {}          # peerId → link
-        self.pending = {}        # requestId → (resolve_event, result)
+        self.links = {}   # peerId → link
         self.lock = threading.Lock()
 
     def on_link_established(self, link):
@@ -165,7 +171,9 @@ class LinkManager:
         if not RNS.Transport.has_path(destination_hash):
             raise Exception(f"RNS_NO_PATH: {peer_id_hex}")
 
-        identity     = RNS.Identity.recall(destination_hash)
+        identity = RNS.Identity.recall(destination_hash)
+        if identity is None:
+            raise Exception(f"RNS_IDENTITY_UNKNOWN: {peer_id_hex} — wait for announce from target node")
         destination  = RNS.Destination(identity, RNS.Destination.OUT, RNS.Destination.SINGLE, AON_APP_NAME, AON_ASPECT)
         link         = RNS.Link(destination)
 
@@ -199,7 +207,20 @@ def main():
     log("starting Reticulum...")
     reticulum = RNS.Reticulum(configdir=config_dir)
 
-    identity = RNS.Identity()
+    # Persist identity so restarts don't invalidate this node's RNS address.
+    # Without this, every restart produces a new destination hash and all
+    # peers that knew the old hash lose reachability until rediscovery.
+    identity_path = os.path.join(
+        config_dir or os.path.expanduser("~/.reticulum"),
+        "aon_identity"
+    )
+    if os.path.exists(identity_path):
+        identity = RNS.Identity.from_file(identity_path)
+        log(f"loaded persisted RNS identity from {identity_path}")
+    else:
+        identity = RNS.Identity()
+        identity.to_file(identity_path)
+        log(f"created new RNS identity at {identity_path}")
     destination = RNS.Destination(
         identity,
         RNS.Destination.IN,
