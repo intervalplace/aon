@@ -63,7 +63,6 @@ AonObject {
   schemaVersion: "1"                // required, currently only "1"
   namespace:     string             // required, e.g. "aon:evm-spot"
   createdAt:     number             // required, Unix timestamp in milliseconds
-  creator?:      string             // optional, address or identifier of creator
   references:    string[]           // required, hashes of referenced objects (may be empty)
   payload:       object             // required, namespace-defined content
   objectHash?:   string             // assigned on finalization, excluded from hash input
