@@ -294,7 +294,10 @@ export class LibP2pTransport implements AonTransport {
   async start() {
     if (this.started && this.node) return;
 
-    const listenPort = Number(process.env.AON_P2P_PORT ?? 0);
+    // Default to 9000 so the node always binds a stable, predictable port.
+    // Operators can override with AON_P2P_PORT. Set to 0 only if you
+    // explicitly want an ephemeral port (breaks bootstrap multiaddrs).
+    const listenPort = Number(process.env.AON_P2P_PORT ?? 9000);
     const bootstrapPeers = (process.env.AON_BOOTSTRAP ?? "")
       .split(",")
       .map((x) => x.trim())
