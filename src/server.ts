@@ -3,7 +3,8 @@ import "./polyfills.js";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { loadStore, putObject, getObject, listObjects, getInboundObjects } from "./store.js";
+import { loadStore, putObject, getObject, hasObject, listObjects, listHashes, getInboundObjects } from "./store.js";
+import { attachSync } from "./sync.js";
 import { getGraph } from "./refs.js";
 import type { AonObject } from "./object.js";
 import type { AonTransport } from "./transport.js";
@@ -66,6 +67,41 @@ const transport: AonTransport = new MultiTransport(buildTransports());
 
 transport.onObject(async (obj: AonObject) => {
   await putObject(obj);
+});
+
+// Namespace subscription: AON_NAMESPACES="aon:evm-spot,aon:csd-usdc" scopes
+// both sync and gossip fetching to those namespaces. Unset = full node.
+// The node treats namespaces as opaque strings — routing, not semantics.
+const subscribedNamespaces = (process.env.AON_NAMESPACES ?? "")
+  .split(",")
+  .map((x) => x.trim())
+  .filter(Boolean);
+if (subscribedNamespaces.length) {
+  console.log("[node] namespace subscription active", subscribedNamespaces);
+}
+
+// Transports never import the store — the node injects read access here,
+// mirroring the onObject pattern above.
+transport.onObjectRequest?.((hash: string) => getObject(hash));
+transport.onListHashes?.((after, limit, namespaces) => listHashes({ after, limit, namespaces }));
+
+// Gossip-side namespace policy: skip fetching announced objects outside our
+// subscription. Announcement summaries are untrusted, so this is a bandwidth
+// policy, not a security boundary — verification still happens on ingest.
+if (subscribedNamespaces.length) {
+  const wanted = new Set(subscribedNamespaces);
+  transport.onWantObject?.((summary) =>
+    summary.namespace === undefined ? true : wanted.has(summary.namespace)
+  );
+}
+
+// Object synchronization (src/sync.ts): every new peer connection triggers
+// list → diff → fetch → verify → ingest. New nodes backfill automatically
+// from whichever peer they connect to first (usually the bootnode).
+const sync = attachSync(transport, {
+  hasObject,
+  ingest: putObject,
+  namespaces: subscribedNamespaces,
 });
 
 // Allow configuring CORS origin via env — defaults to open for p2p nodes
@@ -198,7 +234,7 @@ app.post("/v1/p2p/dial", async (req, reply) => {
       return reply.code(400).send({ ok: false, error: { code: "MISSING_MULTIADDR" } });
     }
     const result = await transport.dialPeer(body.addr);
-    return { ok: true, ...result };
+    return result;
   } catch (err: any) {
     return reply.code(400).send({
       ok: false,
@@ -217,7 +253,9 @@ app.post("/v1/p2p/request-object", async (req, reply) => {
       return reply.code(400).send({ ok: false, error: { code: "MISSING_OBJECT_HASH" } });
     }
     const object = await transport.requestObject(body.objectHash, body.peerId);
-    return { ok: true, objectHash: object.objectHash, object };
+    // requestObject no longer stores as a side-effect; ingest explicitly.
+    const stored = await putObject(object);
+    return { ok: true, objectHash: stored.objectHash, object: stored };
   } catch (err: any) {
     return reply.code(400).send({
       ok: false,
@@ -256,6 +294,25 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
     return reply.code(400).send({
       ok: false,
       error: { code: err?.message ?? "PUSH_FAILED" },
+    });
+  }
+});
+
+app.post("/v1/p2p/sync", async (req, reply) => {
+  try {
+    const body = req.body as any;
+    if (!body.peerId) {
+      return reply.code(400).send({ ok: false, error: { code: "MISSING_PEER_ID" } });
+    }
+    const result = await sync.syncFromPeer(body.peerId);
+    if (!result) {
+      return { ok: true, status: "SKIPPED", reason: "SYNC_UNSUPPORTED_OR_IN_FLIGHT" };
+    }
+    return { ok: true, result };
+  } catch (err: any) {
+    return reply.code(400).send({
+      ok: false,
+      error: { code: err?.message ?? "P2P_SYNC_FAILED" },
     });
   }
 });

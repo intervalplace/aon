@@ -54,6 +54,10 @@ const stmtListType  = db.prepare(`SELECT data FROM objects WHERE objectType = ? 
 const stmtListNs    = db.prepare(`SELECT data FROM objects WHERE namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
 const stmtListTyNs  = db.prepare(`SELECT data FROM objects WHERE objectType = ? AND namespace = ? ORDER BY createdAt DESC LIMIT ? OFFSET ?`);
 const stmtInbound   = db.prepare(`SELECT sourceHash FROM refs WHERE targetHash = ?`);
+// Sync: keyset pagination over hashes. ORDER BY hash (the primary key) is
+// stable under concurrent inserts — unlike createdAt DESC, new objects can't
+// shift pages mid-sync.
+const stmtListHashes = db.prepare(`SELECT hash FROM objects WHERE hash > ? ORDER BY hash LIMIT ?`);
 // H1: references filter — objects that reference a given target hash
 const stmtListByRef      = db.prepare(`SELECT o.data FROM objects o INNER JOIN refs r ON r.sourceHash = o.hash WHERE r.targetHash = ? ORDER BY o.createdAt DESC LIMIT ? OFFSET ?`);
 const stmtCountByRef     = db.prepare(`SELECT COUNT(*) as c FROM objects o INNER JOIN refs r ON r.sourceHash = o.hash WHERE r.targetHash = ?`);
@@ -114,6 +118,33 @@ export async function putObject(input: AonObject): Promise<AonObject> {
   assertValidObject(obj);
   txnPut(obj);
   return obj;
+}
+
+export function hasObject(hash: string): boolean {
+  return stmtExists.get(hash.toLowerCase()) !== undefined;
+}
+
+// Page of object hashes for sync, hash-ordered (stable keyset pagination).
+// Optional namespaces filter scopes the page to the given namespaces —
+// used by namespace-subscribed sync (see sync.ts).
+export function listHashes(opts?: { after?: string | null; limit?: number; namespaces?: string[] }) {
+  const limit = Math.max(1, Math.min(opts?.limit ?? 200, 1_000));
+  const after = (opts?.after ?? "").toLowerCase();
+  const ns = (opts?.namespaces ?? [])
+    .filter((x) => typeof x === "string" && x.length > 0 && x.length <= 256)
+    .slice(0, 64);
+
+  let rows: { hash: string }[];
+  if (ns.length === 0) {
+    rows = stmtListHashes.all(after, limit) as { hash: string }[];
+  } else {
+    const placeholders = ns.map(() => "?").join(",");
+    rows = db
+      .prepare(`SELECT hash FROM objects WHERE hash > ? AND namespace IN (${placeholders}) ORDER BY hash LIMIT ?`)
+      .all(after, ...ns, limit) as { hash: string }[];
+  }
+  const hashes = rows.map((r) => r.hash);
+  return { hashes, done: hashes.length < limit };
 }
 
 export function getObject(hash: string): AonObject | null {
