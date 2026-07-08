@@ -15,7 +15,6 @@ import { identify } from "@libp2p/identify";
 import { fromString, toString } from "uint8arrays";
 import { multiaddr } from "@multiformats/multiaddr";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { getObject } from "../store.js";
 import { dirname } from "path";
 import {
   generateKeyPair,
@@ -30,6 +29,9 @@ const TOPIC = "/aon/objects/1";
 const OBJECT_PROTOCOL = "/aon/object/1";
 const ANNOUNCE_PROTOCOL = "/aon/object-announce/1";
 const PEER_PROTOCOL = "/aon/peers/1";
+const HASHES_PROTOCOL = "/aon/hashes/1";
+
+const HASHES_PAGE_MAX = 1_000;
 
 const MAX_P2P_JSON_BYTES = Number(process.env.AON_MAX_P2P_JSON_BYTES ?? 1_000_000);
 const SEEN_ANNOUNCEMENT_MAX = Number(process.env.AON_SEEN_ANNOUNCEMENT_MAX ?? 10_000);
@@ -41,9 +43,43 @@ export class LibP2pTransport implements AonTransport {
   private pexTimer: NodeJS.Timeout | null = null;
   private seenAnnouncements = new Set<string>();
   private objectHandler: ((obj: AonObject) => Promise<void>) | null = null;
+  // Injected by the node (see sync.ts wiring in server.ts). The transport
+  // never imports the store — it only calls what the node hands it.
+  private objectRequestHandler: ((hash: string) => AonObject | null) | null = null;
+  private listHashesHandler:
+    | ((after: string | null, limit: number, namespaces?: string[]) => { hashes: string[]; done: boolean })
+    | null = null;
+  private peerConnectHandler: ((peerId: string) => void) | null = null;
+  private wantObjectHandler:
+    | ((summary: { objectHash: string; namespace?: string; objectType?: string }) => boolean)
+    | null = null;
 
   onObject(handler: (obj: AonObject) => Promise<void>) {
     this.objectHandler = handler;
+  }
+
+  onObjectRequest(handler: (hash: string) => AonObject | null) {
+    this.objectRequestHandler = handler;
+  }
+
+  onListHashes(
+    handler: (
+      after: string | null,
+      limit: number,
+      namespaces?: string[]
+    ) => { hashes: string[]; done: boolean }
+  ) {
+    this.listHashesHandler = handler;
+  }
+
+  onPeerConnect(handler: (peerId: string) => void) {
+    this.peerConnectHandler = handler;
+  }
+
+  onWantObject(
+    handler: (summary: { objectHash: string; namespace?: string; objectType?: string }) => boolean
+  ) {
+    this.wantObjectHandler = handler;
   }
 
   // ── Serialization helpers ──────────────────────────────────────────────────
@@ -209,10 +245,13 @@ export class LibP2pTransport implements AonTransport {
     if (!response.ok || !response.object) {
       throw new Error(response?.error?.code ?? "P2P_OBJECT_FETCH_FAILED");
     }
-    if (this.objectHandler) {
-      await this.objectHandler(response.object);
+    // The peer must answer the question we asked. (Content-level
+    // verification — recomputing the hash — is the node's job; sync.ts
+    // does it before ingesting.)
+    const served = response.object?.objectHash;
+    if (typeof served !== "string" || served.toLowerCase() !== objectHash.toLowerCase()) {
+      throw new Error("P2P_OBJECT_HASH_MISMATCH");
     }
-    console.log("[p2p] stored fetched object", response.object.objectHash);
     return response.object;
   }
 
@@ -223,9 +262,23 @@ export class LibP2pTransport implements AonTransport {
       from: fromPeer?.toString?.(),
     });
     if (!objectHash || typeof objectHash !== "string") return;
+    // Node-injected policy: skip objects we don't subscribe to. The summary
+    // is untrusted (verified after fetch), but skipping on it is safe — a
+    // lying summary only denies the liar's own object a fetch.
+    if (this.wantObjectHandler) {
+      const summary = data.summary ?? {};
+      const want = this.wantObjectHandler({
+        objectHash,
+        namespace: typeof summary.namespace === "string" ? summary.namespace : undefined,
+        objectType: typeof summary.objectType === "string" ? summary.objectType : undefined,
+      });
+      if (!want) return;
+    }
     if (!this.rememberAnnouncement(objectHash)) return;
     if (!fromPeer) return;
     const obj = await this.fetchObjectFromPeer(fromPeer, objectHash);
+    // Unsolicited arrival — deliver to the node (which validates + stores).
+    if (this.objectHandler) await this.objectHandler(obj);
     if (obj?.objectHash) await this.announceObject(obj);
   }
 
@@ -294,10 +347,7 @@ export class LibP2pTransport implements AonTransport {
   async start() {
     if (this.started && this.node) return;
 
-    // Default to 9000 so the node always binds a stable, predictable port.
-    // Operators can override with AON_P2P_PORT. Set to 0 only if you
-    // explicitly want an ephemeral port (breaks bootstrap multiaddrs).
-    const listenPort = Number(process.env.AON_P2P_PORT ?? 9000);
+    const listenPort = Number(process.env.AON_P2P_PORT ?? 0);
     const bootstrapPeers = (process.env.AON_BOOTSTRAP ?? "")
       .split(",")
       .map((x) => x.trim())
@@ -352,9 +402,8 @@ export class LibP2pTransport implements AonTransport {
           await this.writeJsonToStream(stream, { ok: false, error: { code: "MISSING_OBJECT_HASH" } });
           return;
         }
-        // Ask the node for the object via the registered handler's store
-        // We serve what we have; the node wired getObject via onObject
-        const obj = getObject(objectHash);
+        // Serve via the node-injected handler — the transport has no store.
+        const obj = this.objectRequestHandler ? this.objectRequestHandler(objectHash) : null;
         if (!obj) {
           await this.writeJsonToStream(stream, { ok: false, error: { code: "OBJECT_NOT_FOUND" } });
           return;
@@ -378,6 +427,36 @@ export class LibP2pTransport implements AonTransport {
       } catch (err) {
         console.error("[p2p] peer exchange failed", err);
       }
+    });
+
+    // Serve pages of our own object hashes for syncing peers.
+    // Keyset-paginated: { after, limit } in, { ok, hashes, done } out.
+    await this.node.handle(HASHES_PROTOCOL, async (evt: any) => {
+      const stream = evt.stream ?? evt;
+      try {
+        const msg = await this.readJsonFromStream(stream.source ?? stream);
+        if (!this.listHashesHandler) {
+          await this.writeJsonToStream(stream, { ok: false, error: { code: "SYNC_NOT_WIRED" } });
+          return;
+        }
+        const after = typeof msg?.after === "string" && msg.after.length ? msg.after : null;
+        const limit = Math.max(1, Math.min(Number(msg?.limit ?? 200), HASHES_PAGE_MAX));
+        const namespaces = Array.isArray(msg?.namespaces)
+          ? msg.namespaces.filter((x: any) => typeof x === "string").slice(0, 64)
+          : undefined;
+        const page = this.listHashesHandler(after, limit, namespaces);
+        await this.writeJsonToStream(stream, { ok: true, hashes: page.hashes, done: page.done });
+        if (typeof stream.sendCloseWrite === "function") stream.sendCloseWrite();
+      } catch (err) {
+        console.error("[p2p] hashes request failed", err);
+      }
+    });
+
+    // Surface new peer connections to the node (sync trigger lives in
+    // sync.ts, not here — the transport only reports the event).
+    this.node.addEventListener("peer:connect", (evt: any) => {
+      const peerId = evt.detail?.toString?.();
+      if (peerId && this.peerConnectHandler) this.peerConnectHandler(peerId);
     });
 
     this.node.services.pubsub.addEventListener("message", (msg: any) =>
@@ -426,6 +505,30 @@ export class LibP2pTransport implements AonTransport {
   async requestObject(hash: string, peerId: string): Promise<AonObject> {
     if (!this.node) throw new Error("P2P_NOT_STARTED");
     return this.fetchObjectFromPeer(peerIdFromString(peerId), hash);
+  }
+
+  async listPeerHashes(
+    peerId: string,
+    page: { after?: string | null; limit?: number; namespaces?: string[] }
+  ): Promise<{ hashes: string[]; done: boolean }> {
+    if (!this.node) throw new Error("P2P_NOT_STARTED");
+    const stream: any = await this.node.dialProtocol(
+      peerIdFromString(peerId),
+      HASHES_PROTOCOL
+    );
+    await this.writeJsonToStream(stream, {
+      messageType: "aon_list_hashes",
+      after: page.after ?? null,
+      limit: Math.max(1, Math.min(page.limit ?? 200, HASHES_PAGE_MAX)),
+      namespaces: page.namespaces?.length ? page.namespaces : undefined,
+    });
+    if (typeof stream.sendCloseWrite === "function") stream.sendCloseWrite();
+    const response = await this.readJsonFromStream(stream.source ?? stream);
+    if (typeof stream.close === "function") await stream.close();
+    if (!response?.ok || !Array.isArray(response.hashes)) {
+      throw new Error(response?.error?.code ?? "P2P_LIST_HASHES_FAILED");
+    }
+    return { hashes: response.hashes, done: response.done !== false };
   }
 
   async dialPeer(addr: string) {

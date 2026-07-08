@@ -68,6 +68,50 @@ export class MultiTransport implements AonTransport {
     }
   }
 
+  // ── Sync primitives: forward to children that support them ────────────────
+
+  onPeerConnect(handler: (peerId: string) => void) {
+    for (const t of this.transports) t.onPeerConnect?.(handler);
+  }
+
+  onObjectRequest(handler: (hash: string) => AonObject | null) {
+    for (const t of this.transports) t.onObjectRequest?.(handler);
+  }
+
+  onListHashes(
+    handler: (
+      after: string | null,
+      limit: number,
+      namespaces?: string[]
+    ) => { hashes: string[]; done: boolean }
+  ) {
+    for (const t of this.transports) t.onListHashes?.(handler);
+  }
+
+  onWantObject(
+    handler: (summary: { objectHash: string; namespace?: string; objectType?: string }) => boolean
+  ) {
+    for (const t of this.transports) t.onWantObject?.(handler);
+  }
+
+  async listPeerHashes(
+    peerId: string,
+    page: { after?: string | null; limit?: number; namespaces?: string[] }
+  ): Promise<{ hashes: string[]; done: boolean }> {
+    // Same pattern as requestObject: try each capable transport until one
+    // reaches the peer.
+    const errors: string[] = [];
+    for (const t of this.transports) {
+      if (typeof t.listPeerHashes !== "function") continue;
+      try {
+        return await t.listPeerHashes(peerId, page);
+      } catch (err: any) {
+        errors.push(err?.message ?? String(err));
+      }
+    }
+    throw new Error(`MULTI_LIST_HASHES_FAILED: ${errors.join(", ") || "NO_CAPABLE_TRANSPORT"}`);
+  }
+
   async start() {
     await Promise.all(this.transports.map((t) => t.start()));
   }
