@@ -301,9 +301,25 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
 app.post("/v1/p2p/sync", async (req, reply) => {
   try {
     const body = req.body as any;
-    if (!body.peerId) {
-      return reply.code(400).send({ ok: false, error: { code: "MISSING_PEER_ID" } });
+
+    // No peerId → sync from all currently connected peers in parallel.
+    if (!body?.peerId) {
+      const peers = transport.getInfo().peers;
+      if (peers.length === 0) {
+        return { ok: true, status: "NO_PEERS", results: [] };
+      }
+      const results = await Promise.allSettled(peers.map(p => sync.syncFromPeer(p)));
+      return {
+        ok: true,
+        results: results.map((r, i) => ({
+          peerId: peers[i],
+          ...(r.status === "fulfilled"
+            ? { status: "OK", result: r.value ?? { status: "SKIPPED" } }
+            : { status: "ERROR", error: (r.reason as any)?.message ?? String(r.reason) }),
+        })),
+      };
     }
+
     const result = await sync.syncFromPeer(body.peerId);
     if (!result) {
       return { ok: true, status: "SKIPPED", reason: "SYNC_UNSUPPORTED_OR_IN_FLIGHT" };
