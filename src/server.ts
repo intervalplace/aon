@@ -301,6 +301,9 @@ app.post("/v1/p2p/push/:objectHash", async (req, reply) => {
 app.post("/v1/p2p/sync", async (req, reply) => {
   try {
     const body = req.body as any;
+    const namespaces: string[] | undefined = Array.isArray(body?.namespaces)
+      ? body.namespaces.filter((n: any) => typeof n === "string" && n.length > 0)
+      : undefined;
 
     // No peerId → sync from all currently connected peers in parallel.
     if (!body?.peerId) {
@@ -308,7 +311,9 @@ app.post("/v1/p2p/sync", async (req, reply) => {
       if (peers.length === 0) {
         return { ok: true, status: "NO_PEERS", results: [] };
       }
-      const results = await Promise.allSettled(peers.map(p => sync.syncFromPeer(p)));
+      const results = await Promise.allSettled(
+        peers.map(p => sync.syncFromPeer(p, namespaces))
+      );
       return {
         ok: true,
         results: results.map((r, i) => ({
@@ -320,7 +325,7 @@ app.post("/v1/p2p/sync", async (req, reply) => {
       };
     }
 
-    const result = await sync.syncFromPeer(body.peerId);
+    const result = await sync.syncFromPeer(body.peerId, namespaces);
     if (!result) {
       return { ok: true, status: "SKIPPED", reason: "SYNC_UNSUPPORTED_OR_IN_FLIGHT" };
     }

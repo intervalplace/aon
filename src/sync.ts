@@ -58,11 +58,13 @@ export function attachSync(transport: AonTransport, opts: SyncOptions) {
   // peer:connect events collapse into a single pass.
   const inFlight = new Set<string>();
 
-  async function syncFromPeer(peerId: string): Promise<SyncResult | null> {
+  async function syncFromPeer(peerId: string, namespacesOverride?: string[]): Promise<SyncResult | null> {
     if (typeof transport.listPeerHashes !== "function") return null;
     if (inFlight.has(peerId)) return null;
     inFlight.add(peerId);
 
+    // Per-call namespace override takes precedence over node-level subscription.
+    const effectiveNamespaces = namespacesOverride ?? (opts.namespaces?.length ? opts.namespaces : undefined);
     const result: SyncResult = { peerId, fetched: 0, failed: 0, skipped: 0 };
 
     try {
@@ -75,7 +77,7 @@ export function attachSync(transport: AonTransport, opts: SyncOptions) {
         const page = await transport.listPeerHashes(peerId, {
           after,
           limit: batchSize,
-          namespaces: opts.namespaces?.length ? opts.namespaces : undefined,
+          namespaces: effectiveNamespaces,
         });
         if (!page || !Array.isArray(page.hashes)) break;
 
