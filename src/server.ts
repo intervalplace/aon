@@ -10,6 +10,7 @@ import type { AonObject } from "./object.js";
 import type { AonTransport } from "./transport.js";
 import { LibP2pTransport } from "./transports/libp2p.js";
 import { LoRaTransport } from "./transports/lora.js";
+import { LoRaStreamTransport } from "./transports/lora-stream.js";
 import { WebSocketTransport } from "./transports/websocket.js";
 import { BluetoothTransport } from "./transports/bluetooth.js";
 import { ReticulumTransport } from "./transports/reticulum.js";
@@ -34,7 +35,11 @@ function buildTransports(): AonTransport[] {
   const transports: AonTransport[] = [];
 
   // Always include libp2p
-  transports.push(new LibP2pTransport());
+  // libp2p (TCP/IP) on by default — disable with AON_P2P=false to test other
+  // transports (e.g. LoRa) in isolation without local TCP masking the result.
+  if (process.env.AON_P2P !== "false") {
+    transports.push(new LibP2pTransport());
+  }
 
   // Include WebSocket if enabled (always on by default — disable with AON_WS=false)
   if (process.env.AON_WS !== "false") {
@@ -44,8 +49,14 @@ function buildTransports(): AonTransport[] {
 
   // Include LoRa if a serial port is configured
   if (process.env.AON_LORA_PORT) {
-    transports.push(new LoRaTransport());
-    console.log("[node] LoRa transport enabled", { port: process.env.AON_LORA_PORT });
+    // Transparent-stream modules (Waveshare SX1262 DTU) use the stream transport;
+    // RYLR998-style AT modules use the original chunked transport.
+    const streamMode = process.env.AON_LORA_STREAM === "true";
+    transports.push(streamMode ? new LoRaStreamTransport() : new LoRaTransport());
+    console.log("[node] LoRa transport enabled", {
+      port: process.env.AON_LORA_PORT,
+      kind: streamMode ? "stream" : "chunked",
+    });
   }
 
   // Include Bluetooth if enabled
