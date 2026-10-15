@@ -3,7 +3,9 @@ import "./polyfills.js";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { loadStore, putObject, getObject, hasObject, listObjects, listHashes, getInboundObjects } from "./store.js";
+import { loadStore, putObject, getObject, hasObject, listObjects, listObjectsMulti, listHashes, getInboundObjects, objectStats } from "./store.js";
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
 import { attachSync } from "./sync.js";
 import { getGraph } from "./refs.js";
 import type { AonObject } from "./object.js";
@@ -17,7 +19,8 @@ import { ReticulumTransport } from "./transports/reticulum.js";
 import { MultiTransport } from "./transports/multi.js";
 import { walkInboundGraph } from "./graph.js";
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: process.env.AON_LOG_REQUESTS === "true" ? true : { level: "warn" } });
+const startedAt = Date.now();
 const port = Number(process.env.AON_PORT ?? 8787);
 
 // ── Transport ─────────────────────────────────────────────────────────────────
@@ -117,6 +120,19 @@ const sync = attachSync(transport, {
 
 // Allow configuring CORS origin via env — defaults to open for p2p nodes
 await app.register(cors, { origin: process.env.AON_CORS_ORIGIN ?? true });
+
+// Node control endpoints (POST /v1/p2p/*: dial, sync, push, exchange, ...)
+// make the node open connections and do work on request, so by default only
+// the machine itself may call them. A request relayed by a reverse proxy
+// (X-Forwarded-For set) counts as remote. AON_ADMIN_OPEN=true lifts this.
+const adminOpen = process.env.AON_ADMIN_OPEN === "true";
+const isLoopback = (ip: string) => ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+app.addHook("onRequest", async (req, reply) => {
+  if (adminOpen || req.method !== "POST" || !req.url.startsWith("/v1/p2p/")) return;
+  if (!isLoopback(req.socket.remoteAddress ?? "") || req.headers["x-forwarded-for"]) {
+    return reply.code(403).send({ ok: false, error: { code: "ADMIN_LOCAL_ONLY" } });
+  }
+});
 await loadStore();
 await transport.start();
 
@@ -126,6 +142,58 @@ app.get("/v1/health", async () => ({
   ok: true,
   service: "aon-node-v0",
 }));
+
+// ── Explorer ──────────────────────────────────────────────────────────────────
+// A read-only web explorer for this node, served at /. It only uses the
+// public read API below.
+
+const explorerHtml = readFileSync(fileURLToPath(new URL("../explorer/index.html", import.meta.url)), "utf8");
+const explorerVerifyJs = readFileSync(fileURLToPath(new URL("../explorer/verify.js", import.meta.url)), "utf8");
+// Namespaces the explorer shows by default (others are one click away), so
+// junk objects posted to made-up namespaces don't bury real activity.
+const explorerNamespaces = (process.env.AON_EXPLORER_NAMESPACES ?? "aon:evm-spot,aon:csd-usdc")
+  .split(",").map((x) => x.trim()).filter(Boolean);
+if (process.env.AON_EXPLORER !== "false") {
+  app.get("/explorer/verify.js", async (_req, reply) =>
+    reply
+      .header("content-type", "text/javascript; charset=utf-8")
+      .header("cache-control", "public, max-age=3600")
+      .header("x-content-type-options", "nosniff")
+      .send(explorerVerifyJs)
+  );
+  app.get("/", async (_req, reply) =>
+    reply
+      .header("content-type", "text/html; charset=utf-8")
+      .header("content-security-policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+      .header("x-content-type-options", "nosniff")
+      .send(explorerHtml)
+  );
+}
+
+app.get("/v1/stats", async () => ({ ok: true, stats: objectStats() }));
+
+// The network as this node sees it, plus the published bootnode list that
+// new nodes use to join (AON_PUBLIC_BOOTNODES, else this node's own list).
+app.get("/v1/network", async () => {
+  const info = transport.getInfo();
+  const list = (s?: string) => (s ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const bootnodes = list(process.env.AON_PUBLIC_BOOTNODES).length
+    ? list(process.env.AON_PUBLIC_BOOTNODES)
+    : list(process.env.AON_BOOTSTRAP);
+  return {
+    ok: true,
+    network: {
+      name: process.env.AON_NODE_NAME ?? null,
+      peerId: (info as any).peerId ?? null,
+      addrs: (info as any).addrs ?? [],
+      peers: (info as any).peers ?? [],
+      bootnodes,
+      namespaces: subscribedNamespaces,
+      explorerNamespaces,
+      startedAt,
+    },
+  };
+});
 
 // ── Objects ───────────────────────────────────────────────────────────────────
 
@@ -155,6 +223,18 @@ app.post("/v1/objects", async (req, reply) => {
 
 app.get("/v1/objects", async (req) => {
   const q = req.query as any;
+  // Comma-separated namespace / objectType lists ("a,b") select several at once
+  const multi = (v: unknown) => (typeof v === "string" && v.includes(",") ? v.split(",").map((x) => x.trim()).filter(Boolean) : null);
+  const nsList = multi(q.namespace), typeList = multi(q.objectType);
+  if ((nsList || typeList) && !q.references) {
+    const r = listObjectsMulti({
+      namespaces: nsList ?? (q.namespace ? [q.namespace] : []),
+      objectTypes: typeList ?? (q.objectType ? [q.objectType] : []),
+      limit: q.limit ? Number(q.limit) : undefined,
+      offset: q.offset ? Number(q.offset) : undefined,
+    });
+    return { ok: true, ...r };
+  }
   const limit = q.limit ? Math.min(Number(q.limit), 1000) : undefined;
   const result = listObjects({
     objectType: q.objectType,
@@ -203,7 +283,7 @@ app.get("/v1/graphs/:hash", async (req) => {
   return {
     ok: true,
     graph: getGraph(hash, {
-      maxObjects: q.maxObjects ? Number(q.maxObjects) : undefined,
+      maxObjects: Math.max(1, Math.min(Number(q.maxObjects ?? 200) || 200, 1000)),
     }),
   };
 });
@@ -212,8 +292,8 @@ app.get("/v1/graph/walk/:hash", async (req, reply) => {
   const hash = (req.params as any).hash;
 
   const graph = walkInboundGraph(hash, {
-    maxDepth: Number((req.query as any).maxDepth ?? 8),
-    maxObjects: Number((req.query as any).maxObjects ?? 1000),
+    maxDepth: Math.max(1, Math.min(Number((req.query as any).maxDepth ?? 8) || 8, 32)),
+    maxObjects: Math.max(1, Math.min(Number((req.query as any).maxObjects ?? 1000) || 1000, 1000)),
   });
 
   if (!graph) {

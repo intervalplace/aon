@@ -5,36 +5,37 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/server.ts",
-    "start": "node --loader tsx src/server.ts"
+    "start": "node --import tsx src/server.ts",
+    "build:explorer": "esbuild explorer/src/verify.ts --bundle --minify --format=iife --target=es2020 --legal-comments=none --outfile=explorer/verify.js"
   },
   "dependencies": {
-    "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@chainsafe/libp2p-noise": "^17.0.0",
     "@chainsafe/libp2p-yamux": "^8.0.1",
     "@fastify/cors": "^10.0.0",
     "@libp2p/bootstrap": "^12.0.24",
+    "@libp2p/gossipsub": "^17.1.3",
     "@libp2p/identify": "^4.1.7",
     "@libp2p/peer-id-factory": "^4.2.4",
     "@libp2p/tcp": "^11.0.21",
     "@libp2p/utils": "^7.2.2",
     "@multiformats/multiaddr": "^13.0.3",
+    "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.5",
     "fastify": "^5.0.0",
     "it-byte-stream": "^3.0.0",
     "it-pipe": "^3.0.1",
     "libp2p": "^3.3.3",
     "multiformats": "^14.0.0",
+    "serialport": "^12.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "uint8arrays": "^6.1.1",
     "viem": "^2.21.0",
-    "ws": "^8.18.0",
-    "serialport": "^12.0.0",
-    "better-sqlite3": "^11.0.0"
+    "ws": "^8.18.0"
   },
   "optionalDependencies": {
-    "@abandonware/noble": "^1.9.2-15",
     "@abandonware/bleno": "^0.5.1-6",
+    "@abandonware/noble": "^1.9.2-15",
     "bluetooth-serial-port": "^2.2.7"
   },
   "engines": {

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AON Explorer</title>
+<meta name="description" content="Live object propagation on the Authorization Object Network.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='12' fill='none' stroke='%23111' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23111'/%3E%3C/svg%3E">
+<style>
+:root { --fg: #111; --muted: #666; --line: #ddd; --bg: #fff; --soft: #f6f6f6; --hover: #fafafa; --ok: #1d6b3a; --bad: #800;
+  --serif: Georgia, "Times New Roman", Times, serif; --mono: "Courier New", Courier, monospace; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #eaeaea; --muted: #9a9a9a; --line: #333; --bg: #111; --soft: #1b1b1b; --hover: #161616; --ok: #6fc28d; --bad: #e08080; color-scheme: dark; }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--serif); font-size: 18px; line-height: 1.65; }
+a { color: var(--fg); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 64px; }
+h1 { font-size: 38px; font-weight: 600; line-height: 1.15; margin-bottom: 6px; }
+h2 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+h3 { font-size: 18px; font-weight: 600; margin: 22px 0 8px; }
+.sm, .muted { color: var(--muted); font-size: 15px; }
+.mono { font-family: var(--mono); font-size: 14px; }
+.top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.top .status { margin-left: auto; }
+nav { display: flex; gap: 18px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin: 22px 0 28px; }
+.linkbtn { font-family: var(--serif); font-size: 15px; background: none; border: none; cursor: pointer; padding: 0; color: var(--muted); }
+.linkbtn.on { color: var(--fg); font-weight: 600; }
+.linkbtn:hover { color: var(--fg); }
+.ul { text-decoration: underline; text-underline-offset: 2px; }
+.search { display: flex; gap: 8px; margin-bottom: 28px; }
+input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); outline: none; }
+input:focus { border-color: var(--muted); }
+.btn { font-family: var(--serif); font-size: 15px; padding: 8px 16px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; white-space: nowrap; }
+.btn:disabled { color: var(--muted); cursor: default; }
+.btn.small { padding: 2px 10px; font-size: 14px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; vertical-align: top; border-top: 1px solid var(--line); padding: 8px 8px 8px 0; font-size: 16px; }
+th { font-weight: 600; }
+tr.row { cursor: pointer; }
+tr.row:hover, tr.row.open { background: var(--hover); }
+td.r, th.r { text-align: right; }
+.nowrap { white-space: nowrap; }
+.caret { color: var(--muted); font-size: 13px; margin-right: 5px; }
+.hash { font-family: var(--mono); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+pre { font-family: var(--mono); font-size: 13px; background: var(--soft); padding: 14px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; line-height: 1.6; max-height: 520px; }
+.detail { padding: 14px 0 8px; }
+.subnav { margin-bottom: 12px; display: flex; gap: 18px; }
+.subnav .linkbtn { padding-bottom: 3px; border-bottom: 1px solid transparent; }
+.subnav .linkbtn.on { border-bottom-color: var(--fg); font-weight: 400; }
+.gnode { border-left: 2px solid var(--line); margin-left: 6px; padding-left: 14px; margin-bottom: 8px; }
+.gnode.root { border-left-color: var(--fg); }
+.ghead { cursor: pointer; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.pager { display: flex; gap: 14px; align-items: center; margin-top: 10px; }
+.note { margin-bottom: 14px; }
+.kv { margin-bottom: 4px; font-size: 16px; word-break: break-all; }
+.list li { list-style: none; display: flex; gap: 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--line); }
+.list li .grow { flex: 1; min-width: 0; word-break: break-all; }
+.result { border: 1px solid var(--line); padding: 14px 16px; margin-bottom: 28px; }
+footer { margin-top: 52px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; gap: 18px; flex-wrap: wrap; }
+footer .grow { flex: 1; }
+@media (max-width: 640px) {
+  body { font-size: 17px; }
+  h1 { font-size: 32px; }
+  .hide-sm { display: none; }
+  .top .status { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>AON Explorer</h1>
+    <span class="sm status" id="status"></span>
+  </div>
+  <p class="sm" style="font-size:16px">Live object propagation.</p>
+  <nav id="nav"></nav>
+  <form class="search" id="search" autocomplete="off">
+    <input id="q" placeholder="Search by object hash (0x...)" spellcheck="false" aria-label="Object hash">
+    <button class="btn" type="submit">Search</button>
+  </form>
+  <div id="result"></div>
+  <div id="main"></div>
+  <footer class="sm">
+    <span class="grow">No cookies. No authority.</span>
+    <a href="https://aon.network" rel="noreferrer">aon.network</a>
+    <a href="https://github.com/intervalplace/aon" rel="noreferrer">Run a node</a>
+  </footer>
+</div>
+<script src="/explorer/verify.js"></script>
+<script>
+"use strict";
+// Everything here uses this node's own read API. Object data is untrusted and
+// only ever inserted as text.
+const LIMIT = 25;
+const PRIMITIVES = ["authorization", "condition", "proof", "receipt", "revocation"];
+const TABS = [
+  { key: "all", label: "All" },
+  { key: "authorization", label: "Authorizations" },
+  { key: "condition", label: "Conditions" },
+  { key: "proof", label: "Proofs" },
+  { key: "receipt", label: "Receipts" },
+  { key: "revocation", label: "Revocations" },
+  { key: "namespace", label: "Namespace types", hint: "Types defined by namespaces: orders, fills, offers and so on." },
+  { key: "network", label: "Network" },
+];
+
+const api = (p) => fetch(p, { cache: "no-store" }).then(async (r) => { const j = await r.json().catch(() => null); if (!j || j.ok === false) throw new Error(j?.error?.code || "HTTP " + r.status); return j; });
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+// replaceChildren without the null/array pitfalls
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
+const trunc = (x, n = 10) => (!x ? "—" : x.length > n + 6 ? `${x.slice(0, 2 + n)}…${x.slice(-4)}` : x);
+const fmtTime = (ms) => (!ms ? "—" : new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 19) + " UTC");
+const nsShort = (ns) => (ns ? String(ns).replace(/^aon:/, "") : "—");
+const fmt = (n) => Number(n || 0).toLocaleString("en-US");
+const isHash = (s) => /^0x[0-9a-fA-F]{64}$/.test(s);
+
+function Hash(hash) {
+  const el = h("span", { class: "hash", title: hash + " (click to copy)" }, trunc(hash));
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(hash).then(() => { el.textContent = "copied"; setTimeout(() => (el.textContent = trunc(hash)), 1200); });
+  });
+  return el;
+}
+function copyBtn(text, label = "copy") {
+  const b = h("button", { class: "btn small", type: "button", onclick: () => navigator.clipboard?.writeText(text).then(() => { b.textContent = "copied"; setTimeout(() => (b.textContent = label), 1200); }) }, label);
+  return b;
+}
+
+// ── Signatures ───────────────────────────────────────────────────────────────
+const sigCache = new Map();
+async function sigOf(o) {
+  const k = o.objectHash;
+  if (!sigCache.has(k)) sigCache.set(k, window.aonVerify ? window.aonVerify(o).catch(() => "invalid") : Promise.resolve("unknown"));
+  return sigCache.get(k);
+}
+function SigCell(status) {
+  if (status === "valid") return h("span", { class: "ok", title: "EIP-712 signature checked in your browser: it matches the signer" }, "✓ signed");
+  if (status === "invalid") return h("span", { class: "bad", title: "The signature doesn't match the claimed signer" }, "✗ invalid");
+  if (status === "unknown") return h("span", { class: "muted", title: "Signed with a scheme this explorer doesn't check" }, "? signed");
+  return h("span", { class: "muted", title: "Not signed. Such objects (fills, receipts…) get their integrity from the objects they reference." }, "—");
+}
+
+// ── State ────────────────────────────────────────────────────────────────────
+const S = { tab: "all", offset: 0, allNs: false, showInvalid: false, expanded: null, view: "graph", net: null, stats: null };
+let timer = null;
+
+async function loadMeta() {
+  const [st, net] = await Promise.all([api("/v1/stats"), api("/v1/network")]);
+  S.stats = st.stats; S.net = net.network;
+  document.getElementById("status").textContent =
+    `${S.net.name ? S.net.name + " · " : ""}${S.net.peers.length} peer${S.net.peers.length === 1 ? "" : "s"} · ${fmt(S.stats.total)} objects`;
+}
+
+function renderNav() {
+  fill(document.getElementById("nav"), ...TABS.map((t) =>
+    h("button", { class: "linkbtn" + (S.tab === t.key ? " on" : ""), type: "button", onclick: () => { S.tab = t.key; S.offset = 0; S.expanded = null; render(); } }, t.label)));
+}
+
+function typesForTab() {
+  if (S.tab === "all") return [];
+  if (S.tab === "namespace") return (S.stats?.objectTypes || []).map((r) => r.key).filter((k) => k && !PRIMITIVES.includes(k)).slice(0, 64);
+  return [S.tab];
+}
+
+async function render() {
+  renderNav();
+  clearInterval(timer);
+  if (S.tab === "network") return renderNetwork();
+  return renderObjects();
+}
+
+// ── Objects ──────────────────────────────────────────────────────────────────
+async function renderObjects() {
+  const main = document.getElementById("main");
+  const cur = TABS.find((t) => t.key === S.tab);
+  const known = S.net?.explorerNamespaces || [];
+  const types = typesForTab();
+  const q = new URLSearchParams({ limit: String(LIMIT), offset: String(S.offset) });
+  if (!S.allNs && known.length) q.set("namespace", known.join(","));
+  if (types.length) q.set("objectType", types.join(","));
+
+  if (!main.querySelector("table")) fill(main, h("h2", {}, cur.label), h("p", { class: "sm", style: "font-style:italic" }, "Loading…"));
+  let r;
+  try {
+    r = (S.tab === "namespace" && !types.length) ? { objects: [], total: 0 } : await api("/v1/objects?" + q);
+  } catch (e) { fill(main, h("h2", {}, cur.label), h("p", { class: "bad" }, "This node didn't answer: " + e.message)); return; }
+
+  const sigs = await Promise.all(r.objects.map(sigOf));
+  const rows = r.objects.map((o, i) => ({ o, sig: sigs[i] }));
+  const hidden = rows.filter((x) => x.sig === "invalid").length;
+  const shown = S.showInvalid ? rows : rows.filter((x) => x.sig !== "invalid");
+
+  const otherNs = (S.stats?.namespaces || []).filter((n) => !known.includes(n.key));
+  const otherCount = otherNs.reduce((s, n) => s + n.count, 0);
+  const filterLine = h("p", { class: "sm note" },
+    S.allNs || !known.length
+      ? ["Showing every namespace. ", known.length ? h("button", { class: "linkbtn ul", type: "button", onclick: () => { S.allNs = false; S.offset = 0; render(); } }, "Only " + known.map(nsShort).join(", ")) : null]
+      : ["Showing ", known.map(nsShort).join(", "), ". ", otherCount ? h("button", { class: "linkbtn ul", type: "button", onclick: () => { S.allNs = true; S.offset = 0; render(); } }, `Show all namespaces (${fmt(otherCount)} more objects)`) : null],
+    hidden ? [" ", S.showInvalid
+      ? h("button", { class: "linkbtn ul", type: "button", onclick: () => { S.showInvalid = false; render(); } }, "Hide objects with invalid signatures")
+      : h("button", { class: "linkbtn ul", type: "button", onclick: () => { S.showInvalid = true; render(); } }, `${hidden} with an invalid signature hidden on this page. Show`)] : null
+  );
+
+  const tbody = h("tbody");
+  for (const { o, sig } of shown) {
+    const open = S.expanded === o.objectHash;
+    tbody.append(h("tr", { class: "row" + (open ? " open" : ""), onclick: () => { S.expanded = open ? null : o.objectHash; S.view = "graph"; render(); } },
+      h("td", { class: "nowrap" }, h("span", { class: "caret" }, open ? "▾" : "▸"), Hash(o.objectHash)),
+      h("td", {}, o.objectType),
+      h("td", { class: "muted hide-sm" }, nsShort(o.namespace)),
+      h("td", { class: "muted nowrap hide-sm", style: "font-size:15px" }, fmtTime(o.createdAt)),
+      h("td", { class: "muted r hide-sm" }, (o.references || []).length),
+      h("td", { class: "nowrap", style: "font-size:15px" }, SigCell(sig))));
+    if (open) tbody.append(h("tr", {}, h("td", { colspan: 6, style: "border-top:none;padding-top:0" }, Detail(o))));
+  }
+
+  const pages = Math.max(1, Math.ceil(r.total / LIMIT)), page = Math.floor(S.offset / LIMIT) + 1;
+  fill(main, 
+    h("h2", {}, cur.label),
+    h("p", { class: "sm", style: "margin-bottom:6px" }, cur.hint ? cur.hint + " " : "", "Click any row to expand the object and its authorization graph."),
+    r.total ? h("p", { class: "sm", style: "margin-bottom:6px" }, `Showing ${S.offset + 1}–${Math.min(S.offset + LIMIT, r.total)} of ${fmt(r.total)}. Signatures are checked in your browser. Inclusion does not imply correctness or authority.`) : null,
+    filterLine,
+    shown.length
+      ? h("div", { style: "overflow-x:auto" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", { class: "nowrap" }, "Hash"), h("th", {}, "Type"), h("th", { class: "hide-sm" }, "Namespace"), h("th", { class: "nowrap hide-sm" }, "Created"), h("th", { class: "r hide-sm" }, "Refs"), h("th", {}, "Signature"))), tbody))
+      : h("p", { class: "sm" }, "No objects found."),
+    pages > 1 ? h("div", { class: "pager" },
+      h("button", { class: "btn", type: "button", disabled: S.offset === 0, onclick: () => { S.offset = Math.max(0, S.offset - LIMIT); S.expanded = null; render(); } }, "← Prev"),
+      h("span", { class: "sm" }, `${page} / ${pages}`),
+      h("button", { class: "btn", type: "button", disabled: S.offset + LIMIT >= r.total, onclick: () => { S.offset += LIMIT; S.expanded = null; render(); } }, "Next →")) : null
+  );
+
+  // Live: refresh every 5s, but not while you're reading an expanded object
+  timer = setInterval(async () => {
+    if (S.expanded || document.hidden) return;
+    try { await loadMeta(); renderObjects(); } catch {}
+  }, 5000);
+}
+
+// ── Object detail: graph / raw ───────────────────────────────────────────────
+function Detail(o) {
+  const box = h("div", { class: "detail" });
+  const body = h("div");
+  const tab = (v, label) => h("button", { class: "linkbtn" + (S.view === v ? " on" : ""), type: "button", onclick: (e) => { e.stopPropagation(); S.view = v; box.replaceWith(Detail(o)); } }, label);
+  box.append(h("div", { class: "subnav" }, tab("graph", "Graph"), tab("raw", "Raw"),
+    h("a", { class: "linkbtn", href: "?hash=" + o.objectHash, onclick: (e) => e.stopPropagation() }, "Link")), body);
+  if (S.view === "raw") body.append(h("pre", {}, JSON.stringify(o, null, 2)));
+  else {
+    body.append(h("p", { class: "sm" }, "Loading graph…"));
+    api("/v1/graphs/" + o.objectHash + "?maxObjects=200").then((r) => fill(body, Graph(r.graph, o.objectHash))).catch(() => fill(body, h("p", { class: "sm" }, "No graph data.")));
+  }
+  return box;
+}
+function Graph(graph, root) {
+  const nodes = graph?.nodes || [], edges = graph?.edges || [];
+  if (nodes.length <= 1) return h("p", { class: "sm" }, "Isolated object — no connected objects.");
+  return h("div", {},
+    h("p", { class: "sm", style: "margin-bottom:10px" }, `${nodes.length} objects · ${edges.length} edges`),
+    nodes.map((n) => GraphNode(n, n.objectHash === root)));
+}
+function GraphNode(o, isRoot) {
+  let open = false;
+  const pre = h("pre", { style: "margin-top:8px;display:none" }, JSON.stringify(o, null, 2));
+  const caret = h("span", { class: "sm", style: "font-size:13px" }, "▸");
+  const sig = h("span", { style: "font-size:13px" });
+  sigOf(o).then((s) => fill(sig, SigCell(s)));
+  const head = h("div", { class: "ghead", onclick: (e) => { e.stopPropagation(); open = !open; pre.style.display = open ? "" : "none"; caret.textContent = open ? "▾" : "▸"; } },
+    caret, h("b", { style: "font-size:15px" }, o.objectType), Hash(o.objectHash),
+    h("span", { class: "sm", style: "font-size:13px" }, nsShort(o.namespace)),
+    h("span", { class: "sm", style: "font-size:13px" }, fmtTime(o.createdAt)), sig,
+    isRoot ? h("span", { class: "sm", style: "font-size:13px" }, "(this object)") : null);
+  return h("div", { class: "gnode" + (isRoot ? " root" : "") }, head, pre);
+}
+
+// ── Search (?hash=0x… links keep working) ────────────────────────────────────
+async function showResult(hash) {
+  const box = document.getElementById("result");
+  if (!hash) { fill(box); return; }
+  if (!isHash(hash)) { fill(box, h("p", { class: "bad", style: "margin-bottom:16px;font-size:15px" }, "Enter a valid 0x object hash (66 characters).")); return; }
+  fill(box, h("p", { class: "sm" }, "Searching…"));
+  try {
+    const o = (await api("/v1/objects/" + hash.toLowerCase())).object;
+    const sig = await sigOf(o);
+    S.view = "graph";
+    fill(box, h("div", { class: "result" },
+      h("div", { style: "display:flex;gap:12px;align-items:baseline;flex-wrap:wrap" },
+        h("b", {}, o.objectType), h("span", { class: "muted" }, nsShort(o.namespace)), h("span", { class: "sm" }, fmtTime(o.createdAt)), SigCell(sig),
+        h("span", { style: "margin-left:auto" }, h("button", { class: "linkbtn ul", type: "button", onclick: () => { history.pushState({}, "", location.pathname); showResult(null); } }, "close"))),
+      h("div", { class: "mono", style: "word-break:break-all;margin-top:4px" }, o.objectHash),
+      Detail(o)));
+  } catch { fill(box, h("p", { class: "bad", style: "margin-bottom:16px;font-size:15px" }, "Object not found on this node. It may not have arrived yet, or it doesn't exist.")); }
+}
+document.getElementById("search").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = document.getElementById("q").value.trim();
+  if (isHash(v)) { const u = new URL(location.href); u.searchParams.set("hash", v.toLowerCase()); u.hash = ""; history.pushState({}, "", u); }
+  showResult(v);
+});
+window.addEventListener("popstate", () => showResult(new URLSearchParams(location.search).get("hash")));
+
+// ── Network ──────────────────────────────────────────────────────────────────
+function renderNetwork() {
+  const n = S.net, s = S.stats, main = document.getElementById("main");
+  if (!n) { fill(main, h("p", { class: "sm", style: "font-style:italic" }, "Loading…")); return; }
+  const boot = n.bootnodes || [];
+  const kv = (k, v, mono) => h("div", { class: "kv" }, h("b", {}, k + ":"), " ", h("span", { class: mono ? "mono" : "" }, v));
+  const known = n.explorerNamespaces || [];
+  fill(main, 
+    h("h2", {}, "Join the network"),
+    h("p", { class: "sm", style: "margin-bottom:12px" }, "Run a node and point it at these bootnodes. It copies every object from the first one it reaches, then stays in sync live. No registration, no permission."),
+    boot.length
+      ? h("ul", { class: "list" }, boot.map((b) => h("li", {}, h("span", { class: "grow mono", style: "font-size:13px" }, b), copyBtn(b))))
+      : h("p", { class: "sm" }, "This node publishes no bootnodes."),
+    boot.length ? h("p", { style: "margin-top:10px" }, copyBtn("AON_BOOTSTRAP=" + boot.join(","), "copy as AON_BOOTSTRAP"), " ",
+      h("a", { class: "sm ul", href: "https://github.com/intervalplace/aon", rel: "noreferrer" }, "Node code and setup")) : null,
+
+    h("h3", {}, "This node"),
+    n.name ? kv("Name", n.name) : null,
+    kv("Peer ID", n.peerId ?? "—", true),
+    kv("Up since", fmtTime(n.startedAt)),
+    kv("Peers", n.peers.length),
+    kv("Objects", fmt(s?.total)),
+    (n.addrs || []).filter((a) => !/\/ip4\/(127\.|0\.0\.0\.0)|\/\/0\.0\.0\.0|\/\/127\./.test(a)).length
+      ? [h("h3", {}, "Addresses"), (n.addrs || []).filter((a) => !/\/ip4\/(127\.|0\.0\.0\.0)|\/\/0\.0\.0\.0|\/\/127\./.test(a)).map((a) => h("div", { class: "mono", style: "font-size:13px;margin-bottom:4px;word-break:break-all" }, a))] : null,
+    n.peers.length ? [h("h3", {}, "Connected peers"), n.peers.map((p) => h("div", { class: "mono", style: "font-size:13px;margin-bottom:4px;word-break:break-all" }, p))] : null,
+
+    h("h3", {}, "Namespaces"),
+    h("p", { class: "sm", style: "margin-bottom:6px" }, "Every namespace this node holds objects for. The object lists show ", known.map(nsShort).join(", ") || "all of them", " by default."),
+    h("table", {}, h("tbody", {}, (s?.namespaces || []).map((r) => h("tr", {}, h("td", {}, r.key, known.includes(r.key) ? "" : h("span", { class: "sm" }, "  (hidden by default)")), h("td", { class: "r" }, fmt(r.count))))))
+  );
+  timer = setInterval(async () => { if (document.hidden) return; try { await loadMeta(); renderNetwork(); } catch {} }, 5000);
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────
+(async () => {
+  renderNav();
+  try { await loadMeta(); } catch (e) { fill(document.getElementById("main"), h("p", { class: "bad" }, "This node isn't answering: " + e.message)); return; }
+  render();
+  const hq = new URLSearchParams(location.search).get("hash") || new URLSearchParams(location.search).get("object");
+  if (hq) { document.getElementById("q").value = hq; showResult(hq); }
+})();
+</script>
+</body>
+</html>

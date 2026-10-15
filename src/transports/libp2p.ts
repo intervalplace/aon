@@ -4,12 +4,12 @@
 // This is the default transport. It is one implementation of AonTransport —
 // not the protocol itself. The node has no direct dependency on this file.
 
-import { peerIdFromString } from "@libp2p/peer-id";
+import { peerIdFromString, peerIdFromPrivateKey } from "@libp2p/peer-id";
 import { createLibp2p, type Libp2p } from "libp2p";
 import { tcp } from "@libp2p/tcp";
 import { noise } from "@chainsafe/libp2p-noise";
 import { yamux } from "@chainsafe/libp2p-yamux";
-import { gossipsub } from "@chainsafe/libp2p-gossipsub";
+import { gossipsub } from "@libp2p/gossipsub";
 import { bootstrap } from "@libp2p/bootstrap";
 import { identify } from "@libp2p/identify";
 import { fromString, toString } from "uint8arrays";
@@ -348,18 +348,33 @@ export class LibP2pTransport implements AonTransport {
     if (this.started && this.node) return;
 
     const listenPort = Number(process.env.AON_P2P_PORT ?? 0);
+    const privateKey = await this.loadOrCreatePrivateKey();
+
+    // Every node can share one bootstrap list: entries pointing at this
+    // node itself are dropped.
+    const selfId = privateKey ? peerIdFromPrivateKey(privateKey).toString() : null;
     const bootstrapPeers = (process.env.AON_BOOTSTRAP ?? "")
       .split(",")
       .map((x) => x.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((addr) => !selfId || !addr.endsWith(`/p2p/${selfId}`));
 
-    const privateKey = await this.loadOrCreatePrivateKey();
+    // Public addresses to advertise to peers (e.g. /dns4/node1.example/tcp/9000).
+    // Without this a node behind NAT or with only private interface IPs
+    // advertises addresses nobody else can dial.
+    const announce = (process.env.AON_ANNOUNCE ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
 
     const maxPeers = Number(process.env.AON_MAX_PEERS ?? 50);
 
     this.node = await createLibp2p({
       privateKey,
-      addresses: { listen: [`/ip4/0.0.0.0/tcp/${listenPort}`] },
+      addresses: {
+        listen: [`/ip4/0.0.0.0/tcp/${listenPort}`],
+        ...(announce.length ? { announce } : {}),
+      },
       transports: [tcp()],
       connectionEncrypters: [noise()],
       streamMuxers: [yamux()],

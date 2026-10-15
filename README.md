@@ -26,7 +26,7 @@ AON_BOOTSTRAP=/ip4/BOOTSTRAP_IP/tcp/BOOTSTRAP_PORT/p2p/BOOTSTRAP_PEER_ID
 Start the node:
 
 ```bash
-npm run dev
+npm start
 ```
 
 Verify it's running:
@@ -114,6 +114,12 @@ type AonObject = {
 
 The node verifies hash integrity on every inbound object. It does not interpret `payload`. That is the namespace's responsibility.
 
+## Running a public node
+
+To run a node on a server, with HTTPS, the explorer, a firewall and a
+systemd service, see [deploy/README.md](deploy/README.md). It's one command
+after `git clone`.
+
 ## Running a node
 
 ```bash
@@ -146,6 +152,16 @@ All configuration is via environment variables.
 | `AON_RNS` | `false` | Set to `true` to enable Reticulum transport |
 | `AON_RNS_CONFIG` | `~/.reticulum` | Reticulum config directory |
 | `AON_PEX_INTERVAL_MS` | `30000` | Peer exchange interval |
+| `AON_ANNOUNCE` | — | Public multiaddrs to advertise, e.g. `/dns4/node1.example.org/tcp/9000` |
+| `AON_PUBLIC_BOOTNODES` | `AON_BOOTSTRAP` | Bootnodes shown on the explorer's "Join the network" card |
+| `AON_NODE_NAME` | — | Display name in the explorer |
+| `AON_EXPLORER` | `true` | Serve the web explorer at `/` |
+| `AON_EXPLORER_NAMESPACES` | `aon:evm-spot,aon:csd-usdc` | Namespaces the explorer lists by default (others are one click away) |
+| `AON_ADMIN_OPEN` | `false` | Allow remote callers to use `POST /v1/p2p/*`; by default only the machine itself can |
+| `AON_LOG_REQUESTS` | `false` | Log every HTTP request |
+
+A bootstrap list may include the node's own address: a node skips itself, so
+every node in a network can share one list.
 
 To connect to the network, set `AON_BOOTSTRAP` to a bootstrap node multiaddr:
 
@@ -172,7 +188,7 @@ The node runs all configured transports simultaneously via `MultiTransport`. Obj
 | Method | Path | Description |
 |---|---|---|
 | `POST` | `/v1/objects` | Submit an object |
-| `GET` | `/v1/objects` | List objects (filter by `objectType`, `namespace`, `references`) |
+| `GET` | `/v1/objects` | List objects (filter by `objectType`, `namespace`, `references`; `namespace` and `objectType` take comma-separated lists) |
 | `GET` | `/v1/objects/:hash` | Fetch object by hash |
 | `GET` | `/v1/objects/:hash/references` | Inbound references to this object |
 
@@ -195,11 +211,18 @@ The node runs all configured transports simultaneously via `MultiTransport`. Obj
 | `POST` | `/v1/p2p/push/:objectHash` | Push an object to peers |
 | `POST` | `/v1/p2p/exchange` | Exchange peer lists with a peer |
 
-### Health
+### Health and explorer
 
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/health` | Health check |
+| `GET` | `/v1/stats` | Object counts, total and per namespace / type |
+| `GET` | `/v1/network` | This node's peer ID, addresses, peers and published bootnodes |
+| `GET` | `/` | Web explorer (read-only; uses only the endpoints above) |
+
+`POST /v1/p2p/*` endpoints make the node dial, sync or push on request, so
+they only answer the machine itself (and not requests relayed by a reverse
+proxy) unless `AON_ADMIN_OPEN=true`.
 
 ## Adding a transport
 

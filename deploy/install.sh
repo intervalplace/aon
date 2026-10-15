@@ -1,0 +1,230 @@
+#!/usr/bin/env bash
+# AON node installer (Ubuntu 22.04/24.04, Debian 12). As root:
+#
+#   git clone https://github.com/intervalplace/aon /opt/aon
+#   /opt/aon/deploy/install.sh --name node1 --domain node1.aon.network \
+#        [--alias explorer.aon.network] [--site covenant.market=/var/www/covenant]
+#
+# Sets up: Node.js 22, the node as a systemd service (aon) running from this
+# clone, Caddy for HTTPS (API + explorer on the domain), and the firewall.
+# Safe to re-run. Updates: /opt/aon/deploy/update.sh
+set -euo pipefail
+
+NAME=""; DOMAIN=""; ALIASES=(); SITES=(); P2P_PORT=9000
+usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --name) NAME="$2"; shift 2 ;;
+    --domain) DOMAIN="$2"; shift 2 ;;
+    --alias) ALIASES+=("$2"); shift 2 ;;
+    --site) SITES+=("$2"); shift 2 ;;
+    --p2p-port) P2P_PORT="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Unknown option: $1"; usage ;;
+  esac
+done
+[ -n "$NAME" ] && [ -n "$DOMAIN" ] || usage
+[ "$(id -u)" = 0 ] || { echo "Run as root (sudo)."; exit 1; }
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+[ -f "$REPO/src/server.ts" ] || { echo "Can't find the node code next to this script ($REPO)."; exit 1; }
+case "$REPO" in /root/*|/home/*)
+  echo "The node runs as its own user and can't read $REPO. Clone the repo to /opt/aon instead:"
+  echo "  git clone https://github.com/intervalplace/aon /opt/aon && /opt/aon/deploy/install.sh ..."; exit 1 ;;
+esac
+say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
+
+# ── 0. Ports must be free (an old node or web server would block them) ─────
+say "Checking ports"
+busy=""
+for p in 80 443 8787 "$P2P_PORT"; do
+  if ss -ltnH "( sport = :$p )" 2>/dev/null | grep -q .; then
+    owner=$(ss -ltnpH "( sport = :$p )" 2>/dev/null | grep -o 'users:(("[^"]*"' | head -1 | sed 's/users:(("//; s/"//')
+    # A previous run of this script is fine
+    if [ "$p" = 8787 ] || [ "$p" = "$P2P_PORT" ]; then systemctl is-active --quiet aon && continue; fi
+    if [ "$p" = 80 ] || [ "$p" = 443 ]; then [ "$owner" = caddy ] && continue; fi
+    busy="$busy\n  port $p is used by: ${owner:-unknown}"
+  fi
+done
+if [ -n "$busy" ]; then
+  printf "These ports are already in use:$busy\n\n"
+  echo "Stop whatever is using them first (e.g. an old AON node or nginx: 'systemctl stop nginx',"
+  echo "or 'pm2 stop all' / Ctrl+C on a node started by hand), then run this again."
+  exit 1
+fi
+echo "ok"
+
+# ── 1. Packages ─────────────────────────────────────────────────────────────
+say "Installing packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https ufw build-essential python3 >/dev/null
+
+if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
+  echo "Installing Node.js 22"
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+  apt-get install -y -qq nodejs >/dev/null
+fi
+echo "node $(node -v)"
+
+if ! command -v caddy >/dev/null; then
+  echo "Installing Caddy"
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -qq && apt-get install -y -qq caddy >/dev/null
+fi
+echo "caddy $(caddy version | cut -d' ' -f1)"
+
+# ── 2. The node ─────────────────────────────────────────────────────────────
+say "Installing the AON node"
+id aon >/dev/null 2>&1 || useradd --system --home /var/lib/aon --shell /usr/sbin/nologin aon
+mkdir -p /var/lib/aon /etc/aon
+chown -R aon:aon /var/lib/aon
+# The code stays where it was cloned (owned by root, readable by the node)
+(cd "$REPO" && npm ci --omit=optional --no-audit --no-fund --loglevel=error)
+chmod -R a+rX "$REPO"
+
+ENV=/etc/aon/aon.env
+if [ ! -f "$ENV" ]; then
+  cat > "$ENV" <<EOF
+AON_NODE_NAME=$NAME
+AON_PORT=8787
+AON_P2P_PORT=$P2P_PORT
+AON_ANNOUNCE=/dns4/$DOMAIN/tcp/$P2P_PORT
+AON_DATA_DIR=/var/lib/aon
+AON_PEER_KEY_PATH=/var/lib/aon/peer.key
+AON_WS=false
+AON_MAX_PEERS=100
+# Filled in by set-bootnodes.sh
+AON_BOOTSTRAP=
+AON_PUBLIC_BOOTNODES=
+EOF
+fi
+chmod 640 "$ENV"; chown root:aon "$ENV"
+
+cat > /etc/systemd/system/aon.service <<'EOF'
+[Unit]
+Description=AON node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=aon
+Group=aon
+WorkingDirectory=__REPO__
+EnvironmentFile=/etc/aon/aon.env
+ExecStart=/usr/bin/env node --import tsx src/server.ts
+Restart=always
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aon
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sed -i "s#__REPO__#$REPO#" /etc/systemd/system/aon.service
+systemctl daemon-reload
+systemctl enable aon >/dev/null 2>&1
+systemctl restart aon
+
+# ── 3. HTTPS (Caddy) ────────────────────────────────────────────────────────
+say "Configuring HTTPS"
+HOSTS="$DOMAIN"; for a in "${ALIASES[@]}"; do HOSTS="$HOSTS, $a"; done
+if [ -f /etc/caddy/Caddyfile ] && ! grep -q "Managed by aon" /etc/caddy/Caddyfile; then
+  cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.before-aon.$(date +%s)"
+  echo "Saved the existing Caddyfile next to it (.before-aon.*)"
+fi
+{
+  cat <<EOF
+# Managed by aon/deploy/install.sh
+$HOSTS {
+	encode zstd gzip
+	request_body {
+		max_size 1MB
+	}
+	# Node control endpoints are local only
+	@admin {
+		path /v1/p2p/*
+		not method GET HEAD OPTIONS
+	}
+	respond @admin "local only" 403
+	reverse_proxy 127.0.0.1:8787
+}
+EOF
+  for s in "${SITES[@]}"; do
+    host="${s%%=*}"; dir="${s#*=}"
+    mkdir -p "$dir"
+    [ -n "$(ls -A "$dir" 2>/dev/null)" ] || echo "<!doctype html><title>$host</title><p>Coming soon." > "$dir/index.html"
+    cat <<EOF
+
+$host {
+	encode zstd gzip
+	root * $dir
+	try_files {path} {path}/index.html {path}.html
+	file_server
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+	handle_errors 404 {
+		rewrite * /404.html
+		file_server
+	}
+}
+EOF
+  done
+} > /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+systemctl enable caddy >/dev/null 2>&1
+systemctl reload caddy 2>/dev/null || systemctl restart caddy
+
+# ── 4. Firewall ─────────────────────────────────────────────────────────────
+say "Firewall"
+# Allow SSH on whatever port(s) sshd actually listens on, so we can't lock you out
+SSH_PORTS=$(ss -ltnpH 2>/dev/null | grep -E '"sshd' | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\1/' | sort -u)
+for sp in ${SSH_PORTS:-22}; do ufw allow "$sp"/tcp >/dev/null; done
+ufw allow OpenSSH >/dev/null
+ufw allow 80/tcp >/dev/null
+ufw allow 443/tcp >/dev/null
+ufw allow "$P2P_PORT"/tcp >/dev/null
+ufw --force enable >/dev/null
+echo "open: ssh (${SSH_PORTS:-22}), 80, 443, $P2P_PORT/tcp (8787 stays private behind Caddy)"
+echo "If your provider also has a cloud firewall, open the same ports there."
+
+# ── 5. Result ───────────────────────────────────────────────────────────────
+say "Waiting for the node"
+PEER=""
+for _ in $(seq 1 30); do
+  PEER=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/network 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["network"]["peerId"] or "")' 2>/dev/null || true)
+  [ -n "$PEER" ] && break; sleep 1
+done
+[ -n "$PEER" ] || { echo "The node didn't start. See: journalctl -u aon -n 50"; exit 1; }
+ADDR="/dns4/$DOMAIN/tcp/$P2P_PORT/p2p/$PEER"
+echo "$ADDR" > /etc/aon/bootnode.txt
+
+MYIP=$(curl -s -4 --max-time 5 https://api.ipify.org || true)
+DNSIP=$(getent ahostsv4 "$DOMAIN" | awk 'NR==1{print $1}' || true)
+
+cat <<EOF
+
+────────────────────────────────────────────────────────────
+ $NAME is running.
+
+ Bootnode address (copy this):
+   $ADDR
+
+ Explorer and API:  https://$DOMAIN
+EOF
+for a in "${ALIASES[@]}"; do echo "                    https://$a"; done
+for s in "${SITES[@]}"; do echo " Website:           https://${s%%=*}  (files in ${s#*=})"; done
+if [ -n "$MYIP" ] && [ "$DNSIP" != "$MYIP" ]; then
+  echo
+  echo " ⚠ DNS: $DOMAIN points to '${DNSIP:-nothing}', but this server is $MYIP."
+  echo "   Add an A record: $DOMAIN -> $MYIP (and the same for any alias/site)."
+  echo "   HTTPS starts working by itself once DNS is right."
+fi
+echo "────────────────────────────────────────────────────────────"

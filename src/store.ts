@@ -147,6 +147,19 @@ export function listHashes(opts?: { after?: string | null; limit?: number; names
   return { hashes, done: hashes.length < limit };
 }
 
+// Counts for the explorer: total, and per namespace / objectType.
+const stmtByNs   = db.prepare(`SELECT namespace AS key, COUNT(*) AS count FROM objects GROUP BY namespace ORDER BY count DESC LIMIT 200`);
+const stmtByType = db.prepare(`SELECT objectType AS key, COUNT(*) AS count FROM objects GROUP BY objectType ORDER BY count DESC LIMIT 200`);
+const stmtNewest = db.prepare(`SELECT MAX(createdAt) AS t FROM objects`);
+export function objectStats() {
+  return {
+    total: ((stmtCountAll.get() as any)?.c ?? 0) as number,
+    newestCreatedAt: ((stmtNewest.get() as any)?.t ?? null) as number | null,
+    namespaces: stmtByNs.all() as { key: string; count: number }[],
+    objectTypes: stmtByType.all() as { key: string; count: number }[],
+  };
+}
+
 export function getObject(hash: string): AonObject | null {
   const row = stmtGet.get(hash.toLowerCase()) as { data: string } | undefined;
   return row ? JSON.parse(row.data) : null;
@@ -156,6 +169,22 @@ export function getInboundObjects(hash: string): AonObject[] {
   return (stmtInbound.all(hash.toLowerCase()) as { sourceHash: string }[])
     .map(r => getObject(r.sourceHash))
     .filter((o): o is AonObject => o !== null);
+}
+
+// Several namespaces and/or object types at once (explorer filters).
+// Lists are capped at 64 entries each.
+export function listObjectsMulti(filter: { namespaces?: string[]; objectTypes?: string[]; limit?: number; offset?: number }) {
+  const ns = (filter.namespaces ?? []).filter((x) => typeof x === "string" && x.length > 0 && x.length <= 256).slice(0, 64);
+  const ty = (filter.objectTypes ?? []).filter((x) => typeof x === "string" && x.length > 0 && x.length <= 256).slice(0, 64);
+  const where: string[] = []; const args: unknown[] = [];
+  if (ns.length) { where.push(`namespace IN (${ns.map(() => "?").join(",")})`); args.push(...ns); }
+  if (ty.length) { where.push(`objectType IN (${ty.map(() => "?").join(",")})`); args.push(...ty); }
+  const w = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const limit = Math.max(1, Math.min(filter.limit ?? 50, 1000));
+  const offset = Math.max(0, filter.offset ?? 0);
+  const rows = db.prepare(`SELECT data FROM objects ${w} ORDER BY createdAt DESC LIMIT ? OFFSET ?`).all(...args, limit, offset) as { data: string }[];
+  const total = ((db.prepare(`SELECT COUNT(*) AS c FROM objects ${w}`).get(...args) as any)?.c ?? 0) as number;
+  return { objects: rows.map((r) => JSON.parse(r.data) as AonObject), total, offset, limit };
 }
 
 export function listObjects(filter?: {
