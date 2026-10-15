@@ -72,12 +72,45 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https ufw build-essential python3 >/dev/null
 
-if ! command -v node >/dev/null || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 20 ]; then
-  echo "Installing Node.js 22"
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
-  apt-get install -y -qq nodejs >/dev/null
+# One Node.js (22+) for everything: the dependencies are built with it and
+# the service runs it. A system install is used if it's new enough (not one
+# under /root or /home, which the service user can't read). If the server
+# already has an older Node.js for other apps, a separate Node 22 goes into
+# /opt/node22 and the system one is left alone.
+pick_node() {
+  for n in /opt/node22/bin/node /usr/bin/node /usr/local/bin/node; do
+    [ -x "$n" ] && [ -x "$(dirname "$n")/npm" ] || continue
+    [ "$("$n" -p 'process.versions.node.split(".")[0]')" -ge 22 ] && { echo "$n"; return 0; }
+  done
+  return 1
+}
+private_node22() {
+  local a base sums file sum
+  case "$(uname -m)" in x86_64) a=x64 ;; aarch64|arm64) a=arm64 ;; *) echo "Unsupported CPU: $(uname -m)"; exit 1 ;; esac
+  apt-get install -y -qq xz-utils >/dev/null
+  base=https://nodejs.org/dist/latest-v22.x
+  sums=$(curl -fsSL "$base/SHASUMS256.txt")
+  file=$(awk -v s="-linux-$a.tar.xz" 'substr($2, length($2)-length(s)+1) == s {print $2; exit}' <<<"$sums")
+  sum=$(awk -v f="$file" '$2 == f {print $1}' <<<"$sums")
+  [ -n "$file" ] && [ -n "$sum" ] || { echo "Couldn't find Node 22 for linux-$a"; exit 1; }
+  curl -fsSL -o "/tmp/$file" "$base/$file"
+  echo "$sum  /tmp/$file" | sha256sum -c --quiet - || { echo "Node download failed its checksum"; exit 1; }
+  rm -rf /opt/node22 && mkdir -p /opt/node22 && tar -xJf "/tmp/$file" -C /opt/node22 --strip-components=1 && rm -f "/tmp/$file"
+}
+NODE_BIN=$(pick_node || true)
+if [ -z "$NODE_BIN" ]; then
+  if command -v node >/dev/null || [ -x /usr/bin/node ]; then
+    echo "This server has Node.js $(node -v 2>/dev/null || /usr/bin/node -v) for other apps; installing a separate Node 22 in /opt/node22"
+    private_node22
+  else
+    echo "Installing Node.js 22"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
+    apt-get install -y -qq nodejs >/dev/null
+  fi
+  NODE_BIN=$(pick_node) || { echo "Couldn't set up Node.js 22."; exit 1; }
 fi
-echo "node $(node -v)"
+export PATH="$(dirname "$NODE_BIN"):$PATH"
+echo "node $("$NODE_BIN" -v) at $NODE_BIN"
 
 if ! command -v caddy >/dev/null; then
   echo "Installing Caddy"
@@ -93,7 +126,7 @@ id aon >/dev/null 2>&1 || useradd --system --home /var/lib/aon --shell /usr/sbin
 mkdir -p /var/lib/aon /etc/aon
 chown -R aon:aon /var/lib/aon
 # The code stays where it was cloned (owned by root, readable by the node)
-(cd "$REPO" && npm ci --omit=optional --no-audit --no-fund --loglevel=error)
+(cd "$REPO" && rm -rf node_modules && npm ci --omit=optional --no-audit --no-fund --loglevel=error)
 chmod -R a+rX "$REPO"
 
 ENV=/etc/aon/aon.env
@@ -129,7 +162,7 @@ User=aon
 Group=aon
 WorkingDirectory=__REPO__
 EnvironmentFile=/etc/aon/aon.env
-ExecStart=/usr/bin/env node --import tsx src/server.ts
+ExecStart=__NODE__ --import tsx src/server.ts
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
@@ -142,7 +175,7 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
-sed -i "s#__REPO__#$REPO#" /etc/systemd/system/aon.service
+sed -i "s#__REPO__#$REPO#; s#__NODE__#$NODE_BIN#" /etc/systemd/system/aon.service
 systemctl daemon-reload
 systemctl enable aon >/dev/null 2>&1
 systemctl restart aon
