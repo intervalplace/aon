@@ -104,6 +104,10 @@ AON_MAX_PEERS=100
 AON_BOOTSTRAP=
 AON_PUBLIC_BOOTNODES=
 EOF
+else
+  # Re-run: take the name, domain and port from this run (identity, data and
+  # bootnodes are kept)
+  sed -i -E "s#^AON_NODE_NAME=.*#AON_NODE_NAME=$NAME#; s#^AON_P2P_PORT=.*#AON_P2P_PORT=$P2P_PORT#; s#^AON_ANNOUNCE=.*#AON_ANNOUNCE=/dns4/$DOMAIN/tcp/$P2P_PORT#" "$ENV"
 fi
 chmod 640 "$ENV"; chown root:aon "$ENV"
 
