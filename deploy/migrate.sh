@@ -6,9 +6,11 @@
 #   /opt/aon/deploy/migrate.sh https://explorer.aon.network
 set -euo pipefail
 SRC="${1:?Usage: ./migrate.sh https://old-node.example}"
+PORT=$(grep -E "^AON_PORT=" /etc/aon/aon.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8787}
+export AON_LOCAL="http://127.0.0.1:$PORT"
 python3 - "$SRC" <<'PY'
-import json, sys, urllib.request, urllib.error
-src = sys.argv[1].rstrip("/"); dst = "http://127.0.0.1:8787"
+import json, os, sys, urllib.request, urllib.error
+src = sys.argv[1].rstrip("/"); dst = os.environ["AON_LOCAL"]
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def get(u): return json.load(opener.open(urllib.request.Request(u, headers={"accept": "application/json"}), timeout=30))
 ok = fail = 0; offset = 0; reasons = {}

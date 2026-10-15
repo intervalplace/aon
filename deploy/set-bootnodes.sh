@@ -32,6 +32,7 @@ done
 
 LIST=$(IFS=,; echo "${ADDRS[*]}")
 ENV=/etc/aon/aon.env
+PORT=$(grep -E "^AON_PORT=" /etc/aon/aon.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8787}
 CURRENT=$(grep -E '^AON_BOOTSTRAP=' "$ENV" | cut -d= -f2-)
 if [ "$IF_CHANGED" = 1 ] && [ "$CURRENT" = "$LIST" ]; then exit 0; fi
 sed -i -E "s#^AON_BOOTSTRAP=.*#AON_BOOTSTRAP=$LIST#; s#^AON_PUBLIC_BOOTNODES=.*#AON_PUBLIC_BOOTNODES=$LIST#" "$ENV"
@@ -39,7 +40,7 @@ systemctl restart aon
 echo "Bootnodes: ${#ADDRS[@]}. Restarted; waiting for peers..."
 n=0
 for _ in $(seq 1 30); do
-  n=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/network 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["network"]["peers"]))' 2>/dev/null || echo 0)
+  n=$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/v1/network" 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["network"]["peers"]))' 2>/dev/null || echo 0)
   [ "$n" -ge $(( ${#ADDRS[@]} - 1 )) ] && break; sleep 1
 done
 echo "Connected peers: $n"

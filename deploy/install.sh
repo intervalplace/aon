@@ -4,18 +4,22 @@
 #   git clone https://github.com/intervalplace/aon /opt/aon
 #   /opt/aon/deploy/install.sh --name node1 --domain node1.aon.network \
 #        [--peers node2.aon.network,node3.aon.network] \
-#        [--alias explorer.aon.network] [--site covenant.market=/var/www/covenant]
+#        [--alias explorer.aon.network] [--site covenant.market,www.covenant.market=/var/www/covenant]
+#        [--proxy example.org,www.example.org=127.0.0.1:3000] [--http-port 8790] [--no-firewall]
 #
 # --peers: the other nodes' domains. The node connects to them by itself as
 # soon as they're up (checked every 2 minutes), in any install order.
+# --proxy: keep serving another app on this server through Caddy (HTTPS).
+# --http-port: the node's local API port (default 8787) if another app uses it.
+# --no-firewall: leave the firewall as it is (servers that also run other things).
 #
 # Sets up: Node.js 22, the node as a systemd service (aon) running from this
 # clone, Caddy for HTTPS (API + explorer on the domain), and the firewall.
 # Safe to re-run. Updates: /opt/aon/deploy/update.sh
 set -euo pipefail
 
-NAME=""; DOMAIN=""; ALIASES=(); SITES=(); PEERS=""; P2P_PORT=9000
-usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+NAME=""; DOMAIN=""; ALIASES=(); SITES=(); PROXIES=(); PEERS=""; P2P_PORT=9000; HTTP_PORT=8787; FIREWALL=1
+usage() { sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
@@ -23,6 +27,9 @@ while [ $# -gt 0 ]; do
     --alias) ALIASES+=("$2"); shift 2 ;;
     --site) SITES+=("$2"); shift 2 ;;
     --peers) PEERS="$2"; shift 2 ;;
+    --proxy) PROXIES+=("$2"); shift 2 ;;
+    --http-port) HTTP_PORT="$2"; shift 2 ;;
+    --no-firewall) FIREWALL=0; shift ;;
     --p2p-port) P2P_PORT="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown option: $1"; usage ;;
@@ -42,11 +49,11 @@ say() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 # ── 0. Ports must be free (an old node or web server would block them) ─────
 say "Checking ports"
 busy=""
-for p in 80 443 8787 "$P2P_PORT"; do
+for p in 80 443 "$HTTP_PORT" "$P2P_PORT"; do
   if ss -ltnH "( sport = :$p )" 2>/dev/null | grep -q .; then
     owner=$(ss -ltnpH "( sport = :$p )" 2>/dev/null | grep -o 'users:(("[^"]*"' | head -1 | sed 's/users:(("//; s/"//')
     # A previous run of this script is fine
-    if [ "$p" = 8787 ] || [ "$p" = "$P2P_PORT" ]; then systemctl is-active --quiet aon && continue; fi
+    if [ "$p" = "$HTTP_PORT" ] || [ "$p" = "$P2P_PORT" ]; then systemctl is-active --quiet aon && continue; fi
     if [ "$p" = 80 ] || [ "$p" = 443 ]; then [ "$owner" = caddy ] && continue; fi
     busy="$busy\n  port $p is used by: ${owner:-unknown}"
   fi
@@ -93,7 +100,7 @@ ENV=/etc/aon/aon.env
 if [ ! -f "$ENV" ]; then
   cat > "$ENV" <<EOF
 AON_NODE_NAME=$NAME
-AON_PORT=8787
+AON_PORT=$HTTP_PORT
 AON_P2P_PORT=$P2P_PORT
 AON_ANNOUNCE=/dns4/$DOMAIN/tcp/$P2P_PORT
 AON_DATA_DIR=/var/lib/aon
@@ -107,7 +114,7 @@ EOF
 else
   # Re-run: take the name, domain and port from this run (identity, data and
   # bootnodes are kept)
-  sed -i -E "s#^AON_NODE_NAME=.*#AON_NODE_NAME=$NAME#; s#^AON_P2P_PORT=.*#AON_P2P_PORT=$P2P_PORT#; s#^AON_ANNOUNCE=.*#AON_ANNOUNCE=/dns4/$DOMAIN/tcp/$P2P_PORT#" "$ENV"
+  sed -i -E "s#^AON_NODE_NAME=.*#AON_NODE_NAME=$NAME#; s#^AON_PORT=.*#AON_PORT=$HTTP_PORT#; s#^AON_P2P_PORT=.*#AON_P2P_PORT=$P2P_PORT#; s#^AON_ANNOUNCE=.*#AON_ANNOUNCE=/dns4/$DOMAIN/tcp/$P2P_PORT#" "$ENV"
 fi
 chmod 640 "$ENV"; chown root:aon "$ENV"
 
@@ -161,11 +168,21 @@ $HOSTS {
 		not method GET HEAD OPTIONS
 	}
 	respond @admin "local only" 403
-	reverse_proxy 127.0.0.1:8787
+	reverse_proxy 127.0.0.1:$HTTP_PORT
 }
 EOF
+  for p in "${PROXIES[@]}"; do
+    phosts="${p%%=*}"; upstream="${p#*=}"
+    cat <<EOF
+
+${phosts//,/, } {
+	encode zstd gzip
+	reverse_proxy $upstream
+}
+EOF
+  done
   for s in "${SITES[@]}"; do
-    host="${s%%=*}"; dir="${s#*=}"
+    host="${s%%=*}"; host="${host//,/, }"; dir="${s#*=}"
     mkdir -p "$dir"
     [ -n "$(ls -A "$dir" 2>/dev/null)" ] || echo "<!doctype html><title>$host</title><p>Coming soon." > "$dir/index.html"
     cat <<EOF
@@ -192,6 +209,7 @@ systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 # ── 4. Firewall ─────────────────────────────────────────────────────────────
+if [ "$FIREWALL" = 1 ]; then
 say "Firewall"
 # Allow SSH on whatever port(s) sshd actually listens on, so we can't lock you out
 SSH_PORTS=$(ss -ltnpH 2>/dev/null | grep -E '"sshd' | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\1/' | sort -u)
@@ -201,8 +219,12 @@ ufw allow 80/tcp >/dev/null
 ufw allow 443/tcp >/dev/null
 ufw allow "$P2P_PORT"/tcp >/dev/null
 ufw --force enable >/dev/null
-echo "open: ssh (${SSH_PORTS:-22}), 80, 443, $P2P_PORT/tcp (8787 stays private behind Caddy)"
+echo "open: ssh (${SSH_PORTS:-22}), 80, 443, $P2P_PORT/tcp ($HTTP_PORT stays private behind Caddy)"
 echo "If your provider also has a cloud firewall, open the same ports there."
+else
+  say "Firewall"
+  echo "Left as it is (--no-firewall). Peers need port $P2P_PORT/tcp open."
+fi
 
 # ── 5. Peers (find the other nodes by domain, keep checking) ────────────────
 if [ -n "$PEERS" ]; then
@@ -237,7 +259,7 @@ fi
 say "Waiting for the node"
 PEER=""
 for _ in $(seq 1 30); do
-  PEER=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/network 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["network"]["peerId"] or "")' 2>/dev/null || true)
+  PEER=$(curl -s --noproxy '*' "http://127.0.0.1:$HTTP_PORT/v1/network" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["network"]["peerId"] or "")' 2>/dev/null || true)
   [ -n "$PEER" ] && break; sleep 1
 done
 [ -n "$PEER" ] || { echo "The node didn't start. See: journalctl -u aon -n 50"; exit 1; }
@@ -259,6 +281,7 @@ cat <<EOF
 EOF
 for a in "${ALIASES[@]}"; do echo "                    https://$a"; done
 for s in "${SITES[@]}"; do echo " Website:           https://${s%%=*}  (files in ${s#*=})"; done
+for p in "${PROXIES[@]}"; do echo " Proxied:           https://${p%%=*} -> ${p#*=}"; done
 if [ -n "$MYIP" ] && [ "$DNSIP" != "$MYIP" ]; then
   echo
   echo " ⚠ DNS: $DOMAIN points to '${DNSIP:-nothing}', but this server is $MYIP."

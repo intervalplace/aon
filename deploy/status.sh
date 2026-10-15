@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Quick health check of the node on this server.
 set -uo pipefail
-J=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/network) || { echo "Node not answering. See: journalctl -u aon -n 50"; exit 1; }
-S=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/stats)
-G=$(curl -s --noproxy '*' http://127.0.0.1:8787/v1/p2p/pubsub)
+PORT=$(grep -E "^AON_PORT=" /etc/aon/aon.env 2>/dev/null | cut -d= -f2); PORT=${PORT:-8787}
+J=$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/v1/network") || { echo "Node not answering. See: journalctl -u aon -n 50"; exit 1; }
+S=$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/v1/stats")
+G=$(curl -s --noproxy '*' "http://127.0.0.1:$PORT/v1/p2p/pubsub")
 python3 - "$J" "$S" "$G" <<'PY'
 import json, sys
 n = json.loads(sys.argv[1])["network"]; s = json.loads(sys.argv[2])["stats"]; g = json.loads(sys.argv[3])["pubsub"]
