@@ -12,20 +12,23 @@ git clone https://github.com/intervalplace/aon /opt/aon
 
 Point the domain's DNS (an A record) at the server first, or soon after:
 HTTPS starts as soon as it resolves. Options:
+- `--peers a.example.org,b.example.org` gives the domains of other nodes to
+  connect to. Each one's peer ID is looked up at `https://<domain>/v1/network`
+  every 2 minutes, so nodes find each other as they come online, in any order.
 - `--alias other.example.org` also serves the node and explorer on another name.
 - `--site example.com=/var/www/example` also serves a static website from that folder.
 
-The installer prints this node's **bootnode address**. To join a network, or
-to link several nodes into one, give every node the same list:
+To join an existing network without `--peers`, set its bootnodes. The list
+takes domains or full addresses:
 
 ```bash
-/opt/aon/deploy/set-bootnodes.sh /dns4/node1.example.org/tcp/9000/p2p/12D3Koo... /dns4/node2.example.org/tcp/9000/p2p/12D3Koo...
+/opt/aon/deploy/set-bootnodes.sh node1.aon.network node2.aon.network
 ```
 
 | Script | What it does |
 |---|---|
 | `install.sh` | Installs and starts everything; prints the bootnode address. Safe to re-run. |
-| `set-bootnodes.sh` | Sets the bootnode list and restarts. |
+| `set-bootnodes.sh` | Sets the bootnode list (domains or addresses) and restarts. |
 | `update.sh` | `git pull`, reinstall dependencies, restart. |
 | `status.sh` | Peers, gossip, objects at a glance. |
 | `migrate.sh <url>` | Copies every object from another node into this one. |

@@ -15,3 +15,5 @@ print(f"Objects     {s['total']}  " + ", ".join(f"{x['key']}: {x['count']}" for 
 print(f"Bootnodes   {len(n['bootnodes'])} configured")
 PY
 (systemctl is-active --quiet caddy 2>/dev/null && echo "HTTPS       caddy running ($(grep -m1 -oE '^[a-z0-9.-]+\.[a-z]+' /etc/caddy/Caddyfile 2>/dev/null || true))") || true
+[ -f /etc/aon/peers ] && echo "Peer list   $(paste -sd' ' /etc/aon/peers) (auto-connect every 2 min)"
+true

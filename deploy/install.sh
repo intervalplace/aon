@@ -3,21 +3,26 @@
 #
 #   git clone https://github.com/intervalplace/aon /opt/aon
 #   /opt/aon/deploy/install.sh --name node1 --domain node1.aon.network \
+#        [--peers node2.aon.network,node3.aon.network] \
 #        [--alias explorer.aon.network] [--site covenant.market=/var/www/covenant]
+#
+# --peers: the other nodes' domains. The node connects to them by itself as
+# soon as they're up (checked every 2 minutes), in any install order.
 #
 # Sets up: Node.js 22, the node as a systemd service (aon) running from this
 # clone, Caddy for HTTPS (API + explorer on the domain), and the firewall.
 # Safe to re-run. Updates: /opt/aon/deploy/update.sh
 set -euo pipefail
 
-NAME=""; DOMAIN=""; ALIASES=(); SITES=(); P2P_PORT=9000
-usage() { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+NAME=""; DOMAIN=""; ALIASES=(); SITES=(); PEERS=""; P2P_PORT=9000
+usage() { sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
     --domain) DOMAIN="$2"; shift 2 ;;
     --alias) ALIASES+=("$2"); shift 2 ;;
     --site) SITES+=("$2"); shift 2 ;;
+    --peers) PEERS="$2"; shift 2 ;;
     --p2p-port) P2P_PORT="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) echo "Unknown option: $1"; usage ;;
@@ -195,7 +200,36 @@ ufw --force enable >/dev/null
 echo "open: ssh (${SSH_PORTS:-22}), 80, 443, $P2P_PORT/tcp (8787 stays private behind Caddy)"
 echo "If your provider also has a cloud firewall, open the same ports there."
 
-# ── 5. Result ───────────────────────────────────────────────────────────────
+# ── 5. Peers (find the other nodes by domain, keep checking) ────────────────
+if [ -n "$PEERS" ]; then
+  say "Peers"
+  { echo "$DOMAIN"; tr ',' '\n' <<<"$PEERS"; } | sed 's/^ *//; s/ *$//' | grep -v '^$' | sort -u > /etc/aon/peers
+  cat > /etc/systemd/system/aon-peers.service <<UNIT
+[Unit]
+Description=Connect the AON node to its peers (by domain)
+After=aon.service
+
+[Service]
+Type=oneshot
+ExecStart=$REPO/deploy/set-bootnodes.sh --if-changed /etc/aon/peers
+UNIT
+  cat > /etc/systemd/system/aon-peers.timer <<'UNIT'
+[Unit]
+Description=Check the AON node's peers every 2 minutes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=2min
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+  systemctl enable --now aon-peers.timer >/dev/null 2>&1
+  echo "Peers: $(paste -sd' ' /etc/aon/peers). Connecting automatically as each comes online."
+fi
+
+# ── 6. Result ───────────────────────────────────────────────────────────────
 say "Waiting for the node"
 PEER=""
 for _ in $(seq 1 30); do
