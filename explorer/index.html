@@ -24,6 +24,7 @@ h3 { font-size: 18px; font-weight: 600; margin: 22px 0 8px; }
 .mono { font-family: var(--mono); font-size: 14px; }
 .top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .top .status { margin-left: auto; }
+.status span + span { margin-left: 1.4em; }
 nav { display: flex; gap: 18px; flex-wrap: wrap; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin: 22px 0 28px; }
 .linkbtn { font-family: var(--serif); font-size: 15px; background: none; border: none; cursor: pointer; padding: 0; color: var(--muted); }
 .linkbtn.on { color: var(--fg); font-weight: 600; }
@@ -156,13 +157,15 @@ function SigCell(status) {
 
 // ── State ────────────────────────────────────────────────────────────────────
 const S = { tab: "all", offset: 0, allNs: false, showInvalid: false, expanded: null, view: "graph", net: null, stats: null };
-let timer = null;
+let gen = 0; // bumps on every navigation; async work for an older view is dropped
 
 async function loadMeta() {
   const [st, net] = await Promise.all([api("/v1/stats"), api("/v1/network")]);
   S.stats = st.stats; S.net = net.network;
-  document.getElementById("status").textContent =
-    `${S.net.name ? S.net.name + " · " : ""}${S.net.peers.length} peer${S.net.peers.length === 1 ? "" : "s"} · ${fmt(S.stats.total)} objects`;
+  fill(document.getElementById("status"),
+    S.net.name ? h("span", {}, S.net.name) : null,
+    h("span", {}, `${S.net.peers.length} peer${S.net.peers.length === 1 ? "" : "s"}`),
+    h("span", {}, `${fmt(S.stats.total)} objects`));
 }
 
 function renderNav() {
@@ -177,14 +180,25 @@ function typesForTab() {
 }
 
 async function render() {
+  const g = ++gen;
   renderNav();
-  clearInterval(timer);
   if (S.tab === "network") return renderNetwork();
-  return renderObjects();
+  return renderObjects(g);
 }
 
+// Live: one loop for the whole page. Skips while an object is expanded or the
+// tab is in the background, and only redraws the view you're on.
+setInterval(async () => {
+  if (S.expanded || document.hidden) return;
+  const g = gen;
+  try { await loadMeta(); } catch { return; }
+  if (g !== gen) return;
+  if (S.tab === "network") renderNetwork(); else renderObjects(g);
+}, 5000);
+
 // ── Objects ──────────────────────────────────────────────────────────────────
-async function renderObjects() {
+async function renderObjects(g = gen) {
+  if (S.tab === "network") return;
   const main = document.getElementById("main");
   const cur = TABS.find((t) => t.key === S.tab);
   const known = S.net?.explorerNamespaces || [];
@@ -197,9 +211,11 @@ async function renderObjects() {
   let r;
   try {
     r = (S.tab === "namespace" && !types.length) ? { objects: [], total: 0 } : await api("/v1/objects?" + q);
-  } catch (e) { fill(main, h("h2", {}, cur.label), h("p", { class: "bad" }, "This node didn't answer: " + e.message)); return; }
+  } catch (e) { if (g === gen) fill(main, h("h2", {}, cur.label), h("p", { class: "bad" }, "This node didn't answer: " + e.message)); return; }
+  if (g !== gen) return;
 
   const sigs = await Promise.all(r.objects.map(sigOf));
+  if (g !== gen) return;
   const rows = r.objects.map((o, i) => ({ o, sig: sigs[i] }));
   const hidden = rows.filter((x) => x.sig === "invalid").length;
   const shown = S.showInvalid ? rows : rows.filter((x) => x.sig !== "invalid");
@@ -243,11 +259,6 @@ async function renderObjects() {
       h("button", { class: "btn", type: "button", disabled: S.offset + LIMIT >= r.total, onclick: () => { S.offset += LIMIT; S.expanded = null; render(); } }, "Next →")) : null
   );
 
-  // Live: refresh every 5s, but not while you're reading an expanded object
-  timer = setInterval(async () => {
-    if (S.expanded || document.hidden) return;
-    try { await loadMeta(); renderObjects(); } catch {}
-  }, 5000);
 }
 
 // ── Object detail: graph / raw ───────────────────────────────────────────────
@@ -341,7 +352,6 @@ function renderNetwork() {
     h("p", { class: "sm", style: "margin-bottom:6px" }, "Every namespace this node holds objects for. The object lists show ", known.map(nsShort).join(", ") || "all of them", " by default."),
     h("table", {}, h("tbody", {}, (s?.namespaces || []).map((r) => h("tr", {}, h("td", {}, r.key, known.includes(r.key) ? "" : h("span", { class: "sm" }, "  (hidden by default)")), h("td", { class: "r" }, fmt(r.count))))))
   );
-  timer = setInterval(async () => { if (document.hidden) return; try { await loadMeta(); renderNetwork(); } catch {} }, 5000);
 }
 
 // ── Start ────────────────────────────────────────────────────────────────────
