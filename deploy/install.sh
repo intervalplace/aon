@@ -11,7 +11,8 @@
 # soon as they're up (checked every 2 minutes), in any install order.
 # --proxy: keep serving another app on this server through Caddy (HTTPS).
 # --http-port: the node's local API port (default 8787) if another app uses it.
-# --no-firewall: leave the firewall as it is (servers that also run other things).
+# --no-firewall: don't touch the firewall at all. Without it, the installer
+#   only adds AON's ports to a firewall that is already on; it never turns one on.
 #
 # Sets up: Node.js 22, the node as a systemd service (aon) running from this
 # clone, Caddy for HTTPS (API + explorer on the domain), and the firewall.
@@ -242,21 +243,18 @@ systemctl enable caddy >/dev/null 2>&1
 systemctl reload caddy 2>/dev/null || systemctl restart caddy
 
 # ── 4. Firewall ─────────────────────────────────────────────────────────────
-if [ "$FIREWALL" = 1 ]; then
 say "Firewall"
-# Allow SSH on whatever port(s) sshd actually listens on, so we can't lock you out
-SSH_PORTS=$(ss -ltnpH 2>/dev/null | grep -E '"sshd' | awk '{print $4}' | sed -E 's/.*:([0-9]+)$/\1/' | sort -u)
-for sp in ${SSH_PORTS:-22}; do ufw allow "$sp"/tcp >/dev/null; done
-ufw allow OpenSSH >/dev/null
-ufw allow 80/tcp >/dev/null
-ufw allow 443/tcp >/dev/null
-ufw allow "$P2P_PORT"/tcp >/dev/null
-ufw --force enable >/dev/null
-echo "open: ssh (${SSH_PORTS:-22}), 80, 443, $P2P_PORT/tcp ($HTTP_PORT stays private behind Caddy)"
-echo "If your provider also has a cloud firewall, open the same ports there."
+# Never close anything that was reachable before: if the firewall is off, it
+# stays off (other apps on this server may depend on that). If it's on, only
+# the ports AON needs are added to it.
+if [ "$FIREWALL" = 1 ] && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 80/tcp >/dev/null
+  ufw allow 443/tcp >/dev/null
+  ufw allow "$P2P_PORT"/tcp >/dev/null
+  echo "Firewall is on; opened 80, 443, $P2P_PORT/tcp for AON ($HTTP_PORT stays private behind Caddy)."
+  echo "If your provider also has a cloud firewall, open the same ports there."
 else
-  say "Firewall"
-  echo "Left as it is (--no-firewall). Peers need port $P2P_PORT/tcp open."
+  echo "Firewall left as it is. Peers need port $P2P_PORT/tcp reachable (and 80/443 for HTTPS)."
 fi
 
 # ── 5. Peers (find the other nodes by domain, keep checking) ────────────────
