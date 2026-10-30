@@ -3,7 +3,7 @@ import "./polyfills.js";
 import "dotenv/config";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { loadStore, putObject, getObject, hasObject, listObjects, listObjectsMulti, listHashes, getInboundObjects, objectStats } from "./store.js";
+import { loadStore, putObject, getObject, hasObject, listObjects, listObjectsMulti, listHashes, getInboundObjects, getInboundPage, objectStats } from "./store.js";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { attachSync } from "./sync.js";
@@ -197,6 +197,27 @@ app.get("/v1/network", async () => {
 
 // ── Objects ───────────────────────────────────────────────────────────────────
 
+// Publishing is free, so each client may publish AON_POST_LIMIT_PER_MIN objects
+// a minute (default 120; 0 turns the limit off). Requests from this machine are
+// not limited; behind a local reverse proxy the client is the last
+// X-Forwarded-For entry (the one the proxy added).
+const postLimit = Number(process.env.AON_POST_LIMIT_PER_MIN ?? 120);
+const posts = new Map<string, number[]>();
+function postClient(req: any): string | null {
+  const sock = String(req.socket.remoteAddress ?? "");
+  const xff = String(req.headers["x-forwarded-for"] ?? "").split(",").map((x) => x.trim()).filter(Boolean).at(-1);
+  if (isLoopback(sock)) return xff ?? null;
+  return sock;
+}
+app.addHook("onRequest", async (req, reply) => {
+  if (!postLimit || req.method !== "POST" || req.url.split("?")[0] !== "/v1/objects") return;
+  const ip = postClient(req); if (!ip) return;
+  const t = Date.now(), h = (posts.get(ip) ?? []).filter((x) => x > t - 60_000);
+  if (h.length >= postLimit) return reply.code(429).send({ ok: false, error: { code: "RATE_LIMITED" } });
+  h.push(t); posts.delete(ip); posts.set(ip, h);
+  while (posts.size > 50_000) posts.delete(posts.keys().next().value!);
+});
+
 app.post("/v1/objects", async (req, reply) => {
   try {
     const obj = await putObject(req.body as any);
@@ -268,6 +289,12 @@ app.get("/v1/objects/:hash", async (req, reply) => {
 
 app.get("/v1/objects/:hash/references", async (req) => {
   const hash = (req.params as any).hash;
+  const q = req.query as any;
+  // Paged, in arrival order, when asked (?after=<cursor>&limit=<n>); `next` is the cursor for the next page
+  if (q.after !== undefined || q.limit !== undefined) {
+    const page = getInboundPage(hash, Number(q.after ?? 0), Number(q.limit ?? 50));
+    return { ok: true, target: hash, inbound: page.objects, next: page.next };
+  }
   return {
     ok: true,
     target: hash,

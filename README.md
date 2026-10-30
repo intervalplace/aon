@@ -158,6 +158,7 @@ All configuration is via environment variables.
 | `AON_EXPLORER` | `true` | Serve the web explorer at `/` |
 | `AON_EXPLORER_NAMESPACES` | `aon:evm-spot,aon:csd-usdc` | Namespaces the explorer lists by default (others are one click away) |
 | `AON_ADMIN_OPEN` | `false` | Allow remote callers to use `POST /v1/p2p/*`; by default only the machine itself can |
+| `AON_POST_LIMIT_PER_MIN` | `120` | Objects each client may publish per minute (`0`: no limit). The machine itself isn't limited; behind a local reverse proxy the client is the last `X-Forwarded-For` entry |
 | `AON_LOG_REQUESTS` | `false` | Log every HTTP request |
 
 A bootstrap list may include the node's own address: a node skips itself, so
@@ -190,7 +191,7 @@ The node runs all configured transports simultaneously via `MultiTransport`. Obj
 | `POST` | `/v1/objects` | Submit an object |
 | `GET` | `/v1/objects` | List objects (filter by `objectType`, `namespace`, `references`; `namespace` and `objectType` take comma-separated lists) |
 | `GET` | `/v1/objects/:hash` | Fetch object by hash |
-| `GET` | `/v1/objects/:hash/references` | Inbound references to this object |
+| `GET` | `/v1/objects/:hash/references` | Inbound references to this object (`?after=<cursor>&limit=<n>`: a page in the order this node received them, with `next`) |
 
 ### Graphs
 

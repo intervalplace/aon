@@ -165,6 +165,15 @@ export function getObject(hash: string): AonObject | null {
   return row ? JSON.parse(row.data) : null;
 }
 
+// Objects referencing `hash` in the order this node received them, a page at a
+// time: `after` is the cursor from the previous page (0 to start). Junk dated
+// in the future can't jump ahead, and big objects can't make one read huge.
+const stmtInboundPage = db.prepare(`SELECT r.rowid AS rid, o.data FROM refs r INNER JOIN objects o ON o.hash = r.sourceHash WHERE r.targetHash = ? AND r.rowid > ? ORDER BY r.rowid LIMIT ?`);
+export function getInboundPage(hash: string, after: number, limit: number) {
+  const rows = stmtInboundPage.all(hash.toLowerCase(), Math.max(0, Math.floor(after) || 0), Math.max(1, Math.min(Math.floor(limit) || 50, 200))) as { rid: number; data: string }[];
+  return { objects: rows.map(r => JSON.parse(r.data) as AonObject), next: rows.length ? rows[rows.length - 1].rid : Math.max(0, Math.floor(after) || 0) };
+}
+
 export function getInboundObjects(hash: string): AonObject[] {
   return (stmtInbound.all(hash.toLowerCase()) as { sourceHash: string }[])
     .map(r => getObject(r.sourceHash))
