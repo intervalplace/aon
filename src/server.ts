@@ -197,11 +197,13 @@ app.get("/v1/network", async () => {
 
 // ── Objects ───────────────────────────────────────────────────────────────────
 
-// Publishing is free, so each client may publish AON_POST_LIMIT_PER_MIN objects
-// a minute (default 120; 0 turns the limit off). Requests from this machine are
-// not limited; behind a local reverse proxy the client is the last
-// X-Forwarded-For entry (the one the proxy added).
-const postLimit = Number(process.env.AON_POST_LIMIT_PER_MIN ?? 120);
+// Optional, per operator: AON_POST_LIMIT_PER_MIN caps how many objects each
+// client may publish a minute. Off by default: the node takes no position on
+// who may publish; an operator who wants to protect their node sets it, like a
+// mail server's own policy. Requests from this machine are never limited;
+// behind a local reverse proxy the client is the last X-Forwarded-For entry
+// (the one the proxy added); IPv6 clients are counted per /64.
+const postLimit = Number(process.env.AON_POST_LIMIT_PER_MIN ?? 0);
 const posts = new Map<string, number[]>();
 function postClient(req: any): string | null {
   const sock = String(req.socket.remoteAddress ?? "");
