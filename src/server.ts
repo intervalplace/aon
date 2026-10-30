@@ -206,8 +206,13 @@ const posts = new Map<string, number[]>();
 function postClient(req: any): string | null {
   const sock = String(req.socket.remoteAddress ?? "");
   const xff = String(req.headers["x-forwarded-for"] ?? "").split(",").map((x) => x.trim()).filter(Boolean).at(-1);
-  if (isLoopback(sock)) return xff ?? null;
-  return sock;
+  const ip = (isLoopback(sock) ? xff : sock)?.replace(/^::ffff:/, "");
+  if (!ip) return null;
+  // IPv6 clients are counted per /64 (one connection usually has a whole /64 to rotate through)
+  if (!ip.includes(":")) return ip;
+  const [head, tail] = ip.split("::"), h = head ? head.split(":") : [], t = tail ? tail.split(":") : [];
+  const full = tail === undefined ? h : [...h, ...Array(Math.max(0, 8 - h.length - t.length)).fill("0"), ...t];
+  return full.slice(0, 4).map((x) => (x || "0").toLowerCase().replace(/^0+(?=.)/, "")).join(":") + "::/64";
 }
 app.addHook("onRequest", async (req, reply) => {
   if (!postLimit || req.method !== "POST" || req.url.split("?")[0] !== "/v1/objects") return;
