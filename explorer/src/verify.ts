@@ -2,7 +2,11 @@
 // explorer/verify.js by `npm run build:explorer` (pinned: viem from package-lock).
 // Objects signed with { scheme: "eip712", signer, domain, types, primaryType?,
 // message, signature } are checked: the signature must recover to `signer`.
-import { recoverTypedDataAddress } from "viem";
+// So are { scheme: "eip191-object", signer, signature }: a personal-sign over the
+// hash of the object without its signature (market makers sign offers, answers
+// and receipts this way).
+import { recoverMessageAddress, recoverTypedDataAddress } from "viem";
+import { hashObject } from "../../src/object";
 
 type Sig = { scheme?: string; signer?: string; domain?: any; types?: Record<string, { name: string; type: string }[]>; primaryType?: string; message?: any; signature?: string };
 
@@ -29,6 +33,14 @@ function primaryTypeOf(types: NonNullable<Sig["types"]>): string | undefined {
 export async function verifyObject(obj: any): Promise<"valid" | "invalid" | "unsigned" | "unknown"> {
   const sig: Sig | undefined = obj?.signature;
   if (!sig || typeof sig !== "object") return "unsigned";
+  if (sig.scheme === "eip191-object") {
+    try {
+      const { signature: _s, objectHash: _h, ...unsigned } = obj;
+      if (!sig.signer || !sig.signature) return "invalid";
+      const recovered = await recoverMessageAddress({ message: { raw: hashObject(unsigned) as `0x${string}` }, signature: sig.signature as `0x${string}` });
+      return recovered.toLowerCase() === String(sig.signer).toLowerCase() ? "valid" : "invalid";
+    } catch { return "invalid"; }
+  }
   if (sig.scheme !== "eip712") return "unknown";
   try {
     const types = { ...(sig.types ?? {}) };

@@ -147,7 +147,7 @@ async function sigOf(o) {
   return sigCache.get(k);
 }
 function SigCell(status) {
-  if (status === "valid") return h("span", { class: "ok", title: "EIP-712 signature checked in your browser: it matches the signer" }, "✓ signed");
+  if (status === "valid") return h("span", { class: "ok", title: "Signature checked in your browser: it matches the signer" }, "✓ signed");
   if (status === "invalid") return h("span", { class: "bad", title: "The signature doesn't match the claimed signer" }, "✗ invalid");
   if (status === "unknown") return h("span", { class: "muted", title: "Signed with a scheme this explorer doesn't check" }, "? signed");
   return h("span", { class: "muted", title: "Not signed. Such objects (fills, receipts…) get their integrity from the objects they reference." }, "—");
